@@ -1,0 +1,15 @@
+{
+  "doctor_m.command.error.no_server": "§c[DM] 无服务器上下文",
+  "doctor_m.command.error.create_failed": "§c[DM] 维度创建失败",
+
+  "doctor_m.command.tardis.tp.success": "§a[DM] 传送至 §b%s",
+  "doctor_m.command.tardis.create.success": "§a[DM] 已创建维度 §b%s",
+  "doctor_m.command.tardis.delete.success": "§a[DM] 已删除维度 §b%s§a（含存档）",
+  "doctor_m.command.tardis.delete.fail": "§c[DM] 删除失败 §b%s",
+
+  "doctor_m.command.debug.list.empty": "§7[DM] 无动态维度",
+  "doctor_m.command.debug.list.header": "§7[DM] 共 %s 个动态维度：",
+  "doctor_m.command.debug.list.entry": "  §b%s§r | 玩家 %s | 实体 %s | chunk %s | %s %s",
+  "doctor_m.command.debug.save.success": "§a[DM] 已保存所有动态维度",
+  "doctor_m.command.debug.reload.success": "§a[DM] 已卸载所有动态维度，重进时重新加载"
+}

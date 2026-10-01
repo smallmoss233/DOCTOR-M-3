@@ -1,0 +1,15 @@
+{
+  "doctor_m.command.error.no_server": "§c[DM] No server context",
+  "doctor_m.command.error.create_failed": "§c[DM] Failed to create dimension",
+
+  "doctor_m.command.tardis.tp.success": "§a[DM] Teleported to §b%s",
+  "doctor_m.command.tardis.create.success": "§a[DM] Dimension created: §b%s",
+  "doctor_m.command.tardis.delete.success": "§a[DM] Dimension deleted: §b%s§a (with save data)",
+  "doctor_m.command.tardis.delete.fail": "§c[DM] Failed to delete: §b%s",
+
+  "doctor_m.command.debug.list.empty": "§7[DM] No dynamic dimensions",
+  "doctor_m.command.debug.list.header": "§7[DM] %s dynamic dimension(s):",
+  "doctor_m.command.debug.list.entry": "  §b%s§r | players %s | entities %s | chunks %s | %s %s",
+  "doctor_m.command.debug.save.success": "§a[DM] All dynamic dimensions saved",
+  "doctor_m.command.debug.reload.success": "§a[DM] All dynamic dimensions unloaded"
+}

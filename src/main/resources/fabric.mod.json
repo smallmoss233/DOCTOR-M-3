@@ -20,14 +20,18 @@
 		],
 		"client": [
 			"doctor_m.client.DOCTOR_MClient"
-		]
+		],
+        "fabric-datagen": [
+          "doctor_m.client.DOCTORMDataGenerator"
+        ]
 	},
 	"mixins": [
-		"doctor_m.mixins.json",
-		{
+      "mosslib.mixins.json",
+      "doctor_m.mixins.json",
+      {
 			"config": "doctor_m.client.mixins.json",
 			"environment": "client"
-		}
+      }
 	],
 	"depends": {
 		"fabricloader": ">=0.19.5",
