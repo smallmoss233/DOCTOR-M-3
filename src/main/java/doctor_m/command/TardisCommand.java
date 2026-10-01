@@ -3,42 +3,38 @@ package doctor_m.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
+import doctor_m.DMBlocks;
+import doctor_m.block.AbstractTardisDoorBlock;
+import doctor_m.tardis.TardisData;
+import doctor_m.tardis.TardisManager;
 import mosslib.dimension.DimensionDebug;
-import mosslib.dimension.DimensionTemplate;
 import mosslib.dimension.DynamicDimensionManager;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.core.registries.Registries;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.Identifier;
-import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.Level;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
-import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 
 public final class TardisCommand {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("doctor_m/TardisCommand");
-
     private TardisCommand() {}
 
-    /** `tardis/` 前缀——单点定义，便于将来改名。 */
-    private static final String DIMENSION_PATH_PREFIX = "tardis/";
-
-    /** 补全：列出所有动态维度的短 ID。 */
-    private static final SuggestionProvider<CommandSourceStack> DYNAMIC_IDS = (ctx, builder) -> {
-        for (var snap : DimensionDebug.listDynamic(ctx.getSource().getServer())) {
-            String path = snap.key().identifier().getPath();
-            if (path.startsWith(DIMENSION_PATH_PREFIX)) {
-                builder.suggest(path.substring(DIMENSION_PATH_PREFIX.length()));
-            }
+    /** 补全：列出所有 TARDIS UUID。 */
+    private static final SuggestionProvider<CommandSourceStack> TARDIS_IDS = (ctx, builder) -> {
+        MinecraftServer server = ctx.getSource().getServer();
+        for (TardisData d : TardisManager.getRegistry(server).all()) {
+            builder.suggest(d.id().toString());
         }
         return builder.buildFuture();
     };
@@ -46,186 +42,412 @@ public final class TardisCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("doctor_m")
                 .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
-
-                // ============================================================
-                //                      tardis（玩家向）
-                // ============================================================
                 .then(Commands.literal("tardis")
 
-                        // ---------- create ---------- 用玩家 UUID
+                        // ---------- create ----------
                         .then(Commands.literal("create")
-                                .executes(ctx -> {
-                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                    return createDimension(ctx.getSource(),
-                                            keyForPlayer(player.getUUID()));
-                                }))
+                                .executes(TardisCommand::createTardis))
 
                         // ---------- tp [id] ----------
                         .then(Commands.literal("tp")
-                                .executes(ctx -> {
-                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                    return teleportToTardis(player, ctx.getSource(),
-                                            keyForPlayer(player.getUUID()));
-                                })
+                                .executes(TardisCommand::tpOwn)
                                 .then(Commands.argument("id", StringArgumentType.word())
-                                        .suggests(DYNAMIC_IDS)
-                                        .executes(ctx -> {
-                                            ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                            String id = StringArgumentType.getString(ctx, "id");
-                                            return teleportToTardis(player, ctx.getSource(), keyForId(id));
-                                        })))
+                                        .suggests(TARDIS_IDS)
+                                        .executes(TardisCommand::tpById)))
 
-                        // ---------- release ---------- 删除玩家自己的
+                        // ---------- release <id> ----------   OP：删除指定 TARDIS
                         .then(Commands.literal("release")
-                                .executes(ctx -> {
-                                    ServerPlayer player = ctx.getSource().getPlayerOrException();
-                                    return deleteDimension(ctx.getSource(),
-                                            keyForPlayer(player.getUUID()));
-                                })))
+                                .then(Commands.argument("id", StringArgumentType.word())
+                                        .suggests(TARDIS_IDS)
+                                        .executes(TardisCommand::releaseById)))
 
+                        // ---------- info [id] ----------
+                        .then(Commands.literal("info")
+                                .executes(TardisCommand::infoOwn)
+                                .then(Commands.argument("id", StringArgumentType.word())
+                                        .suggests(TARDIS_IDS)
+                                        .executes(TardisCommand::infoById)))
+
+                        // ---------- list ----------
+                        .then(Commands.literal("list")
+                                .executes(TardisCommand::listAll))
+
+                        // ---------- door open|close [id] ----------
+                        .then(Commands.literal("door")
+                                .then(Commands.literal("open")
+                                        .executes(ctx -> setOwnDoor(ctx, true))
+                                        .then(Commands.argument("id", StringArgumentType.word())
+                                                .suggests(TARDIS_IDS)
+                                                .executes(ctx -> setDoorById(ctx, true))))
+                                .then(Commands.literal("close")
+                                        .executes(ctx -> setOwnDoor(ctx, false))
+                                        .then(Commands.argument("id", StringArgumentType.word())
+                                                .suggests(TARDIS_IDS)
+                                                .executes(ctx -> setDoorById(ctx, false)))))
+                )
                 // ============================================================
-                //                      debug（GM 向）
+                //                      debug
                 // ============================================================
                 .then(Commands.literal("debug")
-                        .then(Commands.literal("list")
-                                .executes(ctx -> {
-                                    var list = DimensionDebug.listDynamic(ctx.getSource().getServer());
-                                    if (list.isEmpty()) {
-                                        ctx.getSource().sendSuccess(
-                                                () -> Component.translatable("doctor_m.command.debug.list.empty"),
-                                                false);
-                                        return 0;
-                                    }
-                                    ctx.getSource().sendSuccess(
-                                            () -> Component.translatable(
-                                                    "doctor_m.command.debug.list.header", list.size()),
-                                            false);
-                                    for (var snap : list) {
-                                        ctx.getSource().sendSuccess(
-                                                () -> Component.translatable(
-                                                        "doctor_m.command.debug.list.entry",
-                                                        snap.key().identifier(),
-                                                        snap.playerCount(),
-                                                        snap.entityCount(),
-                                                        snap.loadedChunks(),
-                                                        snap.pathExists() ? "§a✓" : "§c✗",
-                                                        DimensionDebug.formatSize(snap.pathSizeBytes())),
-                                                false);
-                                    }
-                                    return list.size();
-                                }))
-
-                        // ---------- debug create <id> ---------- 手动建
-                        .then(Commands.literal("create")
-                                .then(Commands.argument("id", StringArgumentType.word())
-                                        .executes(ctx -> {
-                                            String id = StringArgumentType.getString(ctx, "id");
-                                            return createDimension(ctx.getSource(), keyForId(id));
-                                        })))
-
-                        // ---------- debug delete <id> ---------- 手动删
-                        .then(Commands.literal("delete")
-                                .then(Commands.argument("id", StringArgumentType.word())
-                                        .suggests(DYNAMIC_IDS)
-                                        .executes(ctx -> {
-                                            String id = StringArgumentType.getString(ctx, "id");
-                                            return deleteDimension(ctx.getSource(), keyForId(id));
-                                        })))
-
+                        .then(Commands.literal("dims")
+                                .executes(TardisCommand::listDims))
                         .then(Commands.literal("save")
-                                .executes(ctx -> {
-                                    DimensionDebug.saveAll(ctx.getSource().getServer());
-                                    ctx.getSource().sendSuccess(
-                                            () -> Component.translatable("doctor_m.command.debug.save.success"),
-                                            false);
-                                    return 1;
-                                }))
-
+                                .executes(TardisCommand::saveDims))
                         .then(Commands.literal("reload")
-                                .executes(ctx -> {
-                                    DimensionDebug.unloadAll(ctx.getSource().getServer());
-                                    ctx.getSource().sendSuccess(
-                                            () -> Component.translatable("doctor_m.command.debug.reload.success"),
-                                            false);
-                                    return 1;
-                                }))));
+                                .executes(TardisCommand::reloadDims))
+                        // ★ 新增：清空所有 TARDIS + 动态维度
+                        .then(Commands.literal("purge")
+                                .executes(TardisCommand::purgeAll)))
+        );
     }
 
     // ================================================================
-    //                      命令实现
+    //                      create
     // ================================================================
 
-    private static int teleportToTardis(ServerPlayer player, CommandSourceStack source,
-                                        ResourceKey<Level> key) {
-        MinecraftServer server = player.level().getServer();
-        if (server == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.error.no_server"));
-            return 0;
-        }
-
-        ServerLevel level = DynamicDimensionManager.getOrCreate(server, key);
-        if (level == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.error.create_failed"));
-            return 0;
-        }
-
-        player.teleportTo(level, 0.5, 65.0, 0.5,
-                Set.of(), player.getYRot(), player.getXRot(), false);
-
-        LOGGER.info("[DM] Player {} teleported to {}", player.getName().getString(), key.identifier());
-
-        source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.tardis.tp.success", key.identifier().toString()),
-                false);
-        return 1;
-    }
-
-    private static int createDimension(CommandSourceStack source, ResourceKey<Level> key) {
+    private static int createTardis(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
         MinecraftServer server = source.getServer();
-        ServerLevel level = DynamicDimensionManager.getOrCreate(server, key);
-        if (level == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.error.create_failed"));
+        ServerLevel level = player.level();
+
+        Direction facing = player.getDirection();
+        if (!facing.getAxis().isHorizontal()) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.create.bad_facing"));
             return 0;
         }
 
-        LOGGER.info("[DM] Dimension created via command: {}", key.identifier());
+        BlockPos target = player.blockPosition().relative(facing);
+        if (!level.getBlockState(target).canBeReplaced()
+                || !level.getBlockState(target.above()).canBeReplaced()) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.create.no_space"));
+            return 0;
+        }
+        if (TardisManager.findByExterior(server, level.dimension(), target) != null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.create.occupied"));
+            return 0;
+        }
 
+        TardisData data = TardisManager.createNewTardis(
+                server, player.getUUID(), level.dimension(), target, facing);
+
+        BlockState lower = DMBlocks.TARDIS_EXTERIOR.defaultBlockState()
+                .setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.LOWER)
+                .setValue(AbstractTardisDoorBlock.FACING, facing)
+                .setValue(AbstractTardisDoorBlock.OPEN, true);
+        level.setBlock(target, lower, 3);
+        level.setBlock(target.above(),
+                lower.setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
+
+        UUID id = data.id();
         source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.tardis.create.success", key.identifier().toString()),
+                () -> Component.translatable("doctor_m.command.tardis.create.success", id.toString()),
+                true);
+        return 1;
+    }
+
+    // ================================================================
+    //                      tp
+    // ================================================================
+
+    private static int tpOwn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = findOwn(source.getServer(), player.getUUID());
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            return 0;
+        }
+        return teleport(source, player, data);
+    }
+
+    private static int tpById(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
+        if (id == null) return 0;
+
+        TardisData data = TardisManager.get(source.getServer(), id);
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
+            return 0;
+        }
+        return teleport(source, player, data);
+    }
+
+    private static int teleport(CommandSourceStack source, ServerPlayer player, TardisData data) {
+        if (!TardisManager.teleportInto(player, data)) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.tp.fail"));
+            return 0;
+        }
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.tp.success", data.id().toString()),
                 false);
         return 1;
     }
 
-    private static int deleteDimension(CommandSourceStack source, ResourceKey<Level> key) {
+    // ================================================================
+    //                      release（OP 删除单台）
+    // ================================================================
+
+    private static int releaseById(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
+        if (id == null) return 0;
+
+        TardisData data = TardisManager.get(source.getServer(), id);
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
+            return 0;
+        }
+        return doDelete(source, data);
+    }
+
+    /**
+     * 删除 TARDIS 的统一入口。
+     * <p>顺序：
+     * <ol>
+     *   <li>{@link TardisManager#delete} 清注册表 + 卸载维度 + 删磁盘（玩家被踢回主世界）</li>
+     *   <li>清外门方块——此时 findByExterior 已查不到，onExteriorBroken 是空操作</li>
+     * </ol>
+     */
+    private static int doDelete(CommandSourceStack source, TardisData data) {
         MinecraftServer server = source.getServer();
-        boolean ok = DynamicDimensionManager.delete(server, key);
-        if (!ok) {
-            source.sendFailure(Component.translatable(
-                    "doctor_m.command.tardis.delete.fail", key.identifier().toString()));
-            return 0;
-        }
+        UUID id = data.id();
 
-        LOGGER.info("[DM] Dimension deleted via command: {}", key.identifier());
+        TardisManager.delete(server, id);
+        clearExteriorBlock(server, data);
 
         source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.tardis.delete.success", key.identifier().toString()),
+                () -> Component.translatable("doctor_m.command.tardis.delete.success", id.toString()),
+                true);
+        return 1;
+    }
+
+    /** 静默清掉外门方块。 */
+    private static void clearExteriorBlock(MinecraftServer server, TardisData data) {
+        if (data.exteriorDim() == null || data.exteriorPos() == null) return;
+        ServerLevel level = server.getLevel(data.exteriorDim());
+        if (level == null) return;
+
+        BlockState s = level.getBlockState(data.exteriorPos());
+        if (!(s.getBlock() instanceof AbstractTardisDoorBlock)) return;
+
+        BlockPos lower = s.getValue(AbstractTardisDoorBlock.HALF) == DoubleBlockHalf.LOWER
+                ? data.exteriorPos() : data.exteriorPos().below();
+        level.setBlock(lower, Blocks.AIR.defaultBlockState(), 35);
+        level.setBlock(lower.above(), Blocks.AIR.defaultBlockState(), 35);
+    }
+
+    // ================================================================
+    //                      info / list
+    // ================================================================
+
+    private static int infoOwn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = findOwn(source.getServer(), player.getUUID());
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            return 0;
+        }
+        return showInfo(source, data);
+    }
+
+    private static int infoById(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
+        if (id == null) return 0;
+        TardisData data = TardisManager.get(source.getServer(), id);
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
+            return 0;
+        }
+        return showInfo(source, data);
+    }
+
+    private static int showInfo(CommandSourceStack source, TardisData data) {
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.info.header", data.id().toString()),
+                false);
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.info.owner",
+                        data.owner() == null ? "-" : data.owner().toString()),
+                false);
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.info.exterior",
+                        data.exteriorDim().identifier().toString(),
+                        data.exteriorPos().toShortString(),
+                        data.exteriorFacing().getName()),
+                false);
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.info.interior",
+                        data.interiorPos().toShortString(),
+                        data.interiorFacing().getName()),
+                false);
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.info.spares",
+                        data.spareDoors().size()),
+                false);
+        return 1;
+    }
+
+    private static int listAll(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        var all = TardisManager.getRegistry(source.getServer()).all();
+
+        if (all.isEmpty()) {
+            source.sendSuccess(
+                    () -> Component.translatable("doctor_m.command.tardis.list.empty"), false);
+            return 0;
+        }
+        int count = all.size();
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.tardis.list.header", count), false);
+        for (TardisData d : all) {
+            source.sendSuccess(
+                    () -> Component.translatable("doctor_m.command.tardis.list.entry",
+                            d.id().toString(),
+                            d.exteriorDim().identifier().toString(),
+                            d.exteriorPos().toShortString(),
+                            d.spareDoors().size()),
+                    false);
+        }
+        return count;
+    }
+
+    // ================================================================
+    //                      door
+    // ================================================================
+
+    private static int setOwnDoor(CommandContext<CommandSourceStack> ctx, boolean open) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = findOwn(source.getServer(), player.getUUID());
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            return 0;
+        }
+        return doSetDoor(source, data, open);
+    }
+
+    private static int setDoorById(CommandContext<CommandSourceStack> ctx, boolean open) {
+        CommandSourceStack source = ctx.getSource();
+        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
+        if (id == null) return 0;
+        TardisData data = TardisManager.get(source.getServer(), id);
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
+            return 0;
+        }
+        return doSetDoor(source, data, open);
+    }
+
+    private static int doSetDoor(CommandSourceStack source, TardisData data, boolean open) {
+        TardisManager.setDoorOpen(source.getServer(), data, open);
+        source.sendSuccess(
+                () -> Component.translatable(
+                        open ? "doctor_m.command.tardis.door.opened"
+                                : "doctor_m.command.tardis.door.closed",
+                        data.id().toString()),
                 false);
         return 1;
     }
 
     // ================================================================
-    //                      Key 派生
+    //                      debug
     // ================================================================
 
-    private static ResourceKey<Level> keyForPlayer(UUID playerId) {
-        return ResourceKey.create(
-                Registries.DIMENSION,
-                DimensionTemplate.dimensionIdFor(playerId));
+    private static int listDims(CommandContext<CommandSourceStack> ctx) {
+        var list = DimensionDebug.listDynamic(ctx.getSource().getServer());
+        if (list.isEmpty()) {
+            ctx.getSource().sendSuccess(
+                    () -> Component.translatable("doctor_m.command.debug.list.empty"), false);
+            return 0;
+        }
+        ctx.getSource().sendSuccess(
+                () -> Component.translatable("doctor_m.command.debug.list.header", list.size()), false);
+        for (var snap : list) {
+            ctx.getSource().sendSuccess(
+                    () -> Component.translatable("doctor_m.command.debug.list.entry",
+                            snap.key().identifier(), snap.playerCount(), snap.entityCount(),
+                            snap.loadedChunks(), snap.pathExists() ? "§a✓" : "§c✗",
+                            DimensionDebug.formatSize(snap.pathSizeBytes())),
+                    false);
+        }
+        return list.size();
     }
 
-    private static ResourceKey<Level> keyForId(String shortId) {
-        return ResourceKey.create(
-                Registries.DIMENSION,
-                Identifier.fromNamespaceAndPath("doctor_m", DIMENSION_PATH_PREFIX + shortId));
+    private static int saveDims(CommandContext<CommandSourceStack> ctx) {
+        DimensionDebug.saveAll(ctx.getSource().getServer());
+        ctx.getSource().sendSuccess(
+                () -> Component.translatable("doctor_m.command.debug.save.success"), false);
+        return 1;
+    }
+
+    private static int reloadDims(CommandContext<CommandSourceStack> ctx) {
+        DimensionDebug.unloadAll(ctx.getSource().getServer());
+        ctx.getSource().sendSuccess(
+                () -> Component.translatable("doctor_m.command.debug.reload.success"), false);
+        return 1;
+    }
+
+    /**
+     * 一次性清空所有 TARDIS + 所有动态维度。
+     * <p>顺序：
+     * <ol>
+     *   <li>逐个删 TARDIS（清外门 + 注册表 + 维度 + 磁盘）</li>
+     *   <li>扫一遍剩余动态维度，把非 TARDIS 的也删掉</li>
+     * </ol>
+     * <p>{@link DynamicDimensionManager#delete} 是幂等的，所以重复调用安全。
+     */
+    private static int purgeAll(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        MinecraftServer server = source.getServer();
+
+        // 1) 快照 TARDIS 列表，避免边遍历边改
+        List<TardisData> snapshot = List.copyOf(TardisManager.getRegistry(server).all());
+        int tardisCount = 0;
+        for (TardisData data : snapshot) {
+            TardisManager.delete(server, data.id());
+            clearExteriorBlock(server, data);
+            tardisCount++;
+        }
+
+        // 2) 剩余动态维度（非 TARDIS 的）也清掉
+        int dimCount = 0;
+        for (var snap : DimensionDebug.listDynamic(server)) {
+            if (DynamicDimensionManager.delete(server, snap.key())) {
+                dimCount++;
+            }
+        }
+
+        final int ft = tardisCount;
+        final int fd = dimCount;
+        source.sendSuccess(
+                () -> Component.translatable("doctor_m.command.debug.purge.success", ft, fd),
+                true);
+        return tardisCount + dimCount;
+    }
+
+    // ================================================================
+    //                      helpers
+    // ================================================================
+
+    /** 找玩家拥有的第一台 TARDIS。 */
+    private static TardisData findOwn(MinecraftServer server, UUID playerId) {
+        for (TardisData d : TardisManager.getRegistry(server).all()) {
+            if (playerId.equals(d.owner())) return d;
+        }
+        return null;
+    }
+
+    private static UUID parseId(CommandSourceStack source, String raw) {
+        try {
+            return UUID.fromString(raw);
+        } catch (IllegalArgumentException e) {
+            source.sendFailure(Component.translatable("doctor_m.command.error.invalid_id", raw));
+            return null;
+        }
     }
 }

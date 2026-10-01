@@ -17,6 +17,10 @@ public class DOCTOR_M implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("[DM] DOCTOR M3 initializing...");
 
+        DMBlocks.register();
+        DMItems.register();
+        DMCreativeTabs.register();
+
         // 生命周期
         ServerLifecycleEvents.SERVER_STARTED.register(server ->
                 DynamicDimensionManager.loadAll(server));
