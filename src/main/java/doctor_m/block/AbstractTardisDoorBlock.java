@@ -173,9 +173,14 @@ public abstract class AbstractTardisDoorBlock extends Block {
         if (state.getValue(HALF) != DoubleBlockHalf.LOWER) return;
         if (!state.getValue(OPEN)) return;
 
-        // ★ 只允许从正面撞入：玩家面朝 FACING 的反方向（面向门走）
+        // ★ 用玩家相对门中心的位置判断：正面 / 侧面都允许，只有背面拒绝
         Direction facing = state.getValue(FACING);
-        if (player.getDirection() != facing.getOpposite()) return;
+        double dx = player.getX() - (pos.getX() + 0.5);
+        double dz = player.getZ() - (pos.getZ() + 0.5);
+        double dot = dx * facing.getStepX() + dz * facing.getStepZ();
+
+        // 阈值 -0.3：给侧面和边界一点宽容，只拒绝明确从背面撞的
+        if (dot < -0.3) return;
 
         handlePassThrough(player, (ServerLevel) level, pos);
     }

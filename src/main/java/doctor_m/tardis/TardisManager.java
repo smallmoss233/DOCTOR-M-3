@@ -3,6 +3,8 @@ package doctor_m.tardis;
 import doctor_m.DMBlocks;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.TardisInteriorDoorBlock;
+import doctor_m.stp.StpManager;
+import doctor_m.stp.StpServerState;
 import mosslib.dimension.DimensionTemplate;
 import mosslib.dimension.DynamicDimensionManager;
 import net.minecraft.core.BlockPos;
@@ -13,6 +15,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
@@ -199,6 +202,7 @@ public final class TardisManager {
      */
     public static void delete(MinecraftServer server, UUID id) {
         getRegistry(server).remove(id);
+        StpServerState.clearTardis(id);                       // ★ STP
         ResourceKey<Level> key = ResourceKey.create(
                 Registries.DIMENSION, DimensionTemplate.dimensionIdFor(id));
         DynamicDimensionManager.delete(server, key);
@@ -240,20 +244,23 @@ public final class TardisManager {
         ServerLevel interior = DynamicDimensionManager.getOrCreate(server, key);
         if (interior == null) return false;
 
-        // ★ 自愈：真门被拆且无备用门时重建
-        if (!interior.getBlockState(data.interiorPos()).is(DMBlocks.TARDIS_INTERIOR_DOOR)) {
-            ensureInterior(server, data);
-        }
+        StpManager.notifyEntering(player, data.id(), key);
 
         BlockPos p = data.interiorPos();
         Direction f = data.interiorFacing();
+
+        // ★ 相对门补偿朝向，保留俯仰
+        float newYRot = computeTeleportYRot(player, data.exteriorFacing(), f);
+        float newXRot = player.getXRot();
+
         player.teleportTo(interior,
                 p.getX() + 0.5 + f.getStepX(),
                 p.getY(),
                 p.getZ() + 0.5 + f.getStepZ(),
-                Set.of(), f.toYRot(), 0f, false);
+                Set.of(), newYRot, newXRot, false);
 
         setGuard(server, player.getUUID());
+        StpServerState.removePreloaded(player.getUUID(), data.id());
         return true;
     }
 
@@ -267,17 +274,36 @@ public final class TardisManager {
         ServerLevel exterior = server.getLevel(data.exteriorDim());
         if (exterior == null) return false;
 
+        StpManager.notifyEnteringWorld(player, data.exteriorDim());
+
         BlockPos p = data.exteriorPos();
         Direction f = data.exteriorFacing();
+
+        // ★ 相对门补偿朝向，保留俯仰
+        float newYRot = computeTeleportYRot(player, data.interiorFacing(), f);
+        float newXRot = player.getXRot();
 
         player.teleportTo(exterior,
                 p.getX() + 0.5 + f.getStepX(),
                 p.getY(),
                 p.getZ() + 0.5 + f.getStepZ(),
-                Set.of(), f.toYRot(), 0f, false);
+                Set.of(), newYRot, newXRot, false);
 
         setGuard(server, player.getUUID());
+        StpServerState.removePreloaded(player.getUUID(), data.id());
         return true;
+    }
+
+    /**
+     * 计算穿门后的玩家 yRot。
+     * <p>玩家撞门时朝向 = 门 FACING 的反方向；传送后朝向 = 新门 FACING 方向 + 保留的偏移角。
+     */
+    private static float computeTeleportYRot(ServerPlayer player,
+                                             Direction fromDoorFacing,
+                                             Direction toDoorFacing) {
+        float forwardYaw = fromDoorFacing.getOpposite().toYRot();
+        float relativeYaw = Mth.wrapDegrees(player.getYRot() - forwardYaw);
+        return Mth.wrapDegrees(toDoorFacing.toYRot() + relativeYaw);
     }
 
     // ================================================================

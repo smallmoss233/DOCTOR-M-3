@@ -3,7 +3,8 @@
 	"package": "doctor_m.client.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"client": [
-		"ExampleClientMixin"
+      "ClientPacketListenerMixin",
+      "ClientPacketListenerAccessor"
 	],
 	"injectors": {
 		"defaultRequire": 1
