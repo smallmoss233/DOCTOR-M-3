@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "doctor_m",
+	"version": "${version}",
+	"name": "DOCTOR_M",
+	"description": "This is an example description! Tell everyone what your mod is about!",
+	"authors": [
+		"Me!"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/doctor_m/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"doctor_m.DOCTOR_M"
+		],
+		"client": [
+			"doctor_m.client.DOCTOR_MClient"
+		]
+	},
+	"mixins": [
+		"doctor_m.mixins.json",
+		{
+			"config": "doctor_m.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
