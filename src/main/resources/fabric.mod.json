@@ -2,16 +2,16 @@
 	"schemaVersion": 1,
 	"id": "doctor_m",
 	"version": "${version}",
-	"name": "DOCTOR_M",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "DOCTOR M",
+	"description": "新一代 Doctor Who 模组！",
 	"authors": [
-		"Me!"
+		"Small Moss / 核心开发者"
 	],
 	"contact": {
 		"homepage": "https://fabricmc.net/",
 		"sources": "https://github.com/FabricMC/fabric-example-mod"
 	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/doctor_m/icon.png",
 	"environment": "*",
 	"entrypoints": {
