@@ -52,7 +52,15 @@ public class DimensionRegistryData extends SavedData {
 
     /** 记录一个维度 key。已存在则无操作。 */
     public void add(ResourceKey<Level> key) {
-        if (dimensionIds.add(key.identifier())) {
+        Identifier id = key.identifier();
+        // 拒绝 "tardis/null" 之类的脏数据
+        if (id.getPath().endsWith("/null")) return;
+        if (dimensionIds.add(id)) setDirty();
+    }
+
+    /** 清理脏数据（服务器启动时调用一次）。 */
+    public void cleanup() {
+        if (dimensionIds.removeIf(id -> id.getPath().endsWith("/null"))) {
             setDirty();
         }
     }

@@ -22,6 +22,9 @@ public final class DimensionTemplate {
 
     /** 从 UUID 派生维度 ID。 */
     public static Identifier dimensionIdFor(UUID id) {
+        if (id == null) {
+            throw new IllegalArgumentException("tardisId must not be null");
+        }
         return Identifier.fromNamespaceAndPath("doctor_m", "tardis/" + id);
     }
 

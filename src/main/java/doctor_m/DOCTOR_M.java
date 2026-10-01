@@ -17,9 +17,11 @@ public class DOCTOR_M implements ModInitializer {
     public void onInitialize() {
         LOGGER.info("[DM] DOCTOR M3 initializing...");
 
+        // 生命周期
         ServerLifecycleEvents.SERVER_STARTED.register(server ->
                 DynamicDimensionManager.loadAll(server));
 
+        // 命令
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
                 TardisCommand.register(dispatcher));
 
