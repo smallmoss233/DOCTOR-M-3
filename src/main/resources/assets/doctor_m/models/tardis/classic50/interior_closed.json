@@ -3,8 +3,8 @@
 	"credit": "Made with Blockbench",
 	"texture_size": [128, 128],
 	"textures": {
-      "0": "doctor_m:block/tardis/classic",
-      "particle": "doctor_m:block/tardis/classic"
+		"0": "doctor_m:block/tardis/classic",
+		"particle": "doctor_m:block/tardis/classic"
 	},
 	"elements": [
 		{
@@ -66,7 +66,7 @@
 			}
 		},
 		{
-			"from": [14, 31, 13.9],
+			"from": [9, 31, 13.9],
 			"to": [16, 32, 20.5],
 			"rotation": {"x": 0, "y": 90, "z": 0, "origin": [8, 47, 17.2]},
 			"faces": {
@@ -79,7 +79,7 @@
 			}
 		},
 		{
-			"from": [14, 31, 13.9],
+			"from": [11, 31, 13.9],
 			"to": [16, 32, 20.5],
 			"rotation": {"x": 0, "y": 135, "z": 0, "origin": [8, 47, 17.2]},
 			"faces": {
@@ -93,7 +93,7 @@
 		},
 		{
 			"from": [0, 31, 13.9],
-			"to": [2, 32, 20.5],
+			"to": [5, 32, 20.5],
 			"rotation": {"x": 0, "y": -135, "z": 0, "origin": [8, 47, 17.2]},
 			"faces": {
 				"north": {"uv": [8.875, 3.875, 10.875, 4], "texture": "#0"},
@@ -105,7 +105,7 @@
 			}
 		},
 		{
-			"from": [13, 0, 13.9],
+			"from": [9, 0, 13.9],
 			"to": [16, 1, 20.5],
 			"rotation": {"x": 0, "y": 90, "z": 0, "origin": [8, 16, 17.2]},
 			"faces": {
@@ -118,7 +118,7 @@
 			}
 		},
 		{
-			"from": [14, 0, 13.9],
+			"from": [11, 0, 13.9],
 			"to": [16, 1, 20.5],
 			"rotation": {"x": 0, "y": 135, "z": 0, "origin": [8, 16, 17.2]},
 			"faces": {
@@ -132,7 +132,7 @@
 		},
 		{
 			"from": [0, 0, 13.9],
-			"to": [2, 1, 20.5],
+			"to": [5, 1, 20.5],
 			"rotation": {"x": 0, "y": -135, "z": 0, "origin": [8, 16, 17.2]},
 			"faces": {
 				"north": {"uv": [8.875, 4.875, 10.875, 5], "texture": "#0"},
