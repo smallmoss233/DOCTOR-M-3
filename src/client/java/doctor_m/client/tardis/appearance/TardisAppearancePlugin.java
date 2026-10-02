@@ -6,9 +6,12 @@ import net.fabricmc.fabric.api.client.model.loading.v1.ExtraModelKey;
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelLoadingPlugin;
 import net.fabricmc.fabric.api.client.model.loading.v1.PreparableModelLoadingPlugin;
 import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
+import net.minecraft.client.resources.model.cuboid.ItemTransform;
+import net.minecraft.client.resources.model.cuboid.ItemTransforms;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.PreparableReloadListener;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.world.item.ItemDisplayContext;
 import org.slf4j.LoggerFactory;
 
 import java.io.Reader;
@@ -34,22 +37,36 @@ public final class TardisAppearancePlugin
 
     @Override
     public void initialize(TardisAppearanceData data, ModelLoadingPlugin.Context ctx) {
-        // 1) 存到注册表（供渲染时查询）
         TardisAppearanceRegistry.setAll(data.appearances());
+        TardisModelTransforms.clear();
 
-        // 2) 遍历所有外观，注册它们的模型
+        Set<Identifier> ourModelIds = new HashSet<>();
+        for (TardisAppearance app : data.appearances().values()) {
+            ourModelIds.addAll(app.allModelIds());
+        }
+
         Set<ExtraModelKey<BlockStateModel>> registered = new HashSet<>();
         int count = 0;
-        for (TardisAppearance app : data.appearances().values()) {
-            for (Identifier modelId : app.allModelIds()) {
-                if (modelId == null) continue;
-                ExtraModelKey<BlockStateModel> key = TardisModelKeys.of(modelId);
-                if (registered.add(key)) {
-                    ctx.addModel(key, new TardisExtraModel(modelId));
-                    count++;
-                }
+        for (Identifier modelId : ourModelIds) {
+            if (modelId == null) continue;
+            ExtraModelKey<BlockStateModel> key = TardisModelKeys.of(modelId);
+            if (registered.add(key)) {
+                ctx.addModel(key, new TardisExtraModel(modelId));
+                count++;
             }
         }
+
+        // ★ 挂 Hook：模型加载时读 display.fixed
+        ctx.modifyModelOnLoad().register((model, context) -> {
+            if (ourModelIds.contains(context.id())) {
+                ItemTransforms ts = model.transforms();
+                if (ts != null) {
+                    ItemTransform fixed = ts.getTransform(ItemDisplayContext.FIXED);
+                    TardisModelTransforms.put(context.id(), fixed);
+                }
+            }
+            return model;
+        });
 
         LOGGER.info("[TARDIS] registered {} extra model(s) for {} appearance(s)",
                 count, data.appearances().size());

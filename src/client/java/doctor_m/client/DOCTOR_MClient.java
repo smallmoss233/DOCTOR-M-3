@@ -1,6 +1,7 @@
 package doctor_m.client;
 
 import doctor_m.DMBlockEntities;
+import doctor_m.client.command.TardisClientCommand;
 import doctor_m.client.stp.StpClientState;
 import doctor_m.client.tardis.appearance.TardisAppearancePlugin;
 import doctor_m.client.tardis.render.TardisDoorRenderer;
@@ -13,6 +14,7 @@ public class DOCTOR_MClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
         TardisAppearancePlugin.register();
+        TardisClientCommand.register();
 
         BlockEntityRenderers.register(DMBlockEntities.TARDIS_DOOR, TardisDoorRenderer::new);
 

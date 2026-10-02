@@ -40,5 +40,9 @@
   "doctor_m.command.debug.list.entry": "  §b%s§r | players %s | entities %s | chunks %s | %s %s",
   "doctor_m.command.debug.save.success": "§a[DM] Saved all dynamic dimensions",
   "doctor_m.command.debug.reload.success": "§a[DM] Unloaded all dynamic dimensions; they will reload on next entry",
-  "doctor_m.command.debug.purge.success": "§a[DM] Purged §b%s§a TARDIS(es) + §b%s§a dynamic dimension(s)"
+  "doctor_m.command.debug.purge.success": "§a[DM] Purged §b%s§a TARDIS(es) + §b%s§a dynamic dimension(s)",
+
+  "doctor_m.command.client.appearance.list.empty": "[DM] No appearances available.",
+  "doctor_m.command.client.appearance.list.header": "[DM] Available appearances (%s):",
+  "doctor_m.command.client.appearance.list.entry": "  %s  %s"
 }

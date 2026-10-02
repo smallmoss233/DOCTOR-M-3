@@ -13,6 +13,7 @@ import mosslib.dimension.DimensionDebug;
 import mosslib.dimension.DynamicDimensionManager;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
+import net.minecraft.commands.arguments.IdentifierArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -56,7 +57,7 @@ public final class TardisCommand {
                                         .suggests(TARDIS_IDS)
                                         .executes(TardisCommand::tpById)))
 
-                        // ---------- release <id> ----------   OP：删除指定 TARDIS
+                        // ---------- release <id> ----------
                         .then(Commands.literal("release")
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests(TARDIS_IDS)
@@ -85,12 +86,13 @@ public final class TardisCommand {
                                         .then(Commands.argument("id", StringArgumentType.word())
                                                 .suggests(TARDIS_IDS)
                                                 .executes(ctx -> setDoorById(ctx, false)))))
+
                         // ---------- appearance set <id> <appearance> ----------
                         .then(Commands.literal("appearance")
                                 .then(Commands.literal("set")
                                         .then(Commands.argument("id", StringArgumentType.word())
                                                 .suggests(TARDIS_IDS)
-                                                .then(Commands.argument("appearance", StringArgumentType.word())
+                                                .then(Commands.argument("appearance", IdentifierArgument.id())
                                                         .executes(TardisCommand::setAppearance)))))
                 )
                 // ============================================================
@@ -103,7 +105,6 @@ public final class TardisCommand {
                                 .executes(TardisCommand::saveDims))
                         .then(Commands.literal("reload")
                                 .executes(TardisCommand::reloadDims))
-                        // ★ 新增：清空所有 TARDIS + 动态维度
                         .then(Commands.literal("purge")
                                 .executes(TardisCommand::purgeAll)))
         );
@@ -211,14 +212,6 @@ public final class TardisCommand {
         return doDelete(source, data);
     }
 
-    /**
-     * 删除 TARDIS 的统一入口。
-     * <p>顺序：
-     * <ol>
-     *   <li>{@link TardisManager#delete} 清注册表 + 卸载维度 + 删磁盘（玩家被踢回主世界）</li>
-     *   <li>清外门方块——此时 findByExterior 已查不到，onExteriorBroken 是空操作</li>
-     * </ol>
-     */
     private static int doDelete(CommandSourceStack source, TardisData data) {
         MinecraftServer server = source.getServer();
         UUID id = data.id();
@@ -362,17 +355,19 @@ public final class TardisCommand {
         return 1;
     }
 
+    // ================================================================
+    //                      appearance
+    // ================================================================
+
     private static int setAppearance(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         MinecraftServer server = source.getServer();
+
         UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
         if (id == null) return 0;
-        Identifier appearance = Identifier.tryParse(
-                StringArgumentType.getString(ctx, "appearance"));
-        if (appearance == null) {
-            source.sendFailure(Component.literal("Invalid appearance id"));
-            return 0;
-        }
+
+        // ★ 用 ResourceLocationArgument.id() 拿 Identifier
+        Identifier appearance = IdentifierArgument.getId(ctx, "appearance");
 
         TardisData data = TardisManager.get(server, id);
         if (data == null) {
@@ -383,12 +378,10 @@ public final class TardisCommand {
 
         data.setAppearanceId(appearance);
         TardisManager.getRegistry(server).setDirty();
-
-        // ★ 同步到内外门 BE
         TardisManager.syncDoorAppearance(server, data);
 
         source.sendSuccess(() -> Component.literal(
-                "Appearance set: " + appearance), false);
+                "§aAppearance set: §b" + appearance), false);
         return 1;
     }
 
@@ -430,20 +423,10 @@ public final class TardisCommand {
         return 1;
     }
 
-    /**
-     * 一次性清空所有 TARDIS + 所有动态维度。
-     * <p>顺序：
-     * <ol>
-     *   <li>逐个删 TARDIS（清外门 + 注册表 + 维度 + 磁盘）</li>
-     *   <li>扫一遍剩余动态维度，把非 TARDIS 的也删掉</li>
-     * </ol>
-     * <p>{@link DynamicDimensionManager#delete} 是幂等的，所以重复调用安全。
-     */
     private static int purgeAll(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
         MinecraftServer server = source.getServer();
 
-        // 1) 快照 TARDIS 列表，避免边遍历边改
         List<TardisData> snapshot = List.copyOf(TardisManager.getRegistry(server).all());
         int tardisCount = 0;
         for (TardisData data : snapshot) {
@@ -452,7 +435,6 @@ public final class TardisCommand {
             tardisCount++;
         }
 
-        // 2) 剩余动态维度（非 TARDIS 的）也清掉
         int dimCount = 0;
         for (var snap : DimensionDebug.listDynamic(server)) {
             if (DynamicDimensionManager.delete(server, snap.key())) {
@@ -472,7 +454,6 @@ public final class TardisCommand {
     //                      helpers
     // ================================================================
 
-    /** 找玩家拥有的第一台 TARDIS。 */
     private static TardisData findOwn(MinecraftServer server, UUID playerId) {
         for (TardisData d : TardisManager.getRegistry(server).all()) {
             if (playerId.equals(d.owner())) return d;
