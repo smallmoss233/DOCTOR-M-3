@@ -16,6 +16,7 @@ import net.minecraft.commands.Commands;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -84,6 +85,13 @@ public final class TardisCommand {
                                         .then(Commands.argument("id", StringArgumentType.word())
                                                 .suggests(TARDIS_IDS)
                                                 .executes(ctx -> setDoorById(ctx, false)))))
+                        // ---------- appearance set <id> <appearance> ----------
+                        .then(Commands.literal("appearance")
+                                .then(Commands.literal("set")
+                                        .then(Commands.argument("id", StringArgumentType.word())
+                                                .suggests(TARDIS_IDS)
+                                                .then(Commands.argument("appearance", StringArgumentType.word())
+                                                        .executes(TardisCommand::setAppearance)))))
                 )
                 // ============================================================
                 //                      debug
@@ -351,6 +359,36 @@ public final class TardisCommand {
                                 : "doctor_m.command.tardis.door.closed",
                         data.id().toString()),
                 false);
+        return 1;
+    }
+
+    private static int setAppearance(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        MinecraftServer server = source.getServer();
+        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
+        if (id == null) return 0;
+        Identifier appearance = Identifier.tryParse(
+                StringArgumentType.getString(ctx, "appearance"));
+        if (appearance == null) {
+            source.sendFailure(Component.literal("Invalid appearance id"));
+            return 0;
+        }
+
+        TardisData data = TardisManager.get(server, id);
+        if (data == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.tardis.not_found", id.toString()));
+            return 0;
+        }
+
+        data.setAppearanceId(appearance);
+        TardisManager.getRegistry(server).setDirty();
+
+        // ★ 同步到内外门 BE
+        TardisManager.syncDoorAppearance(server, data);
+
+        source.sendSuccess(() -> Component.literal(
+                "Appearance set: " + appearance), false);
         return 1;
     }
 

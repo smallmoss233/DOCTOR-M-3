@@ -3,15 +3,12 @@ package doctor_m;
 import doctor_m.command.TardisCommand;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpPackets;
-import doctor_m.stp.StpServerState;
 import doctor_m.stp.StpTrigger;
-import doctor_m.tardis.TardisManager;
 import mosslib.dimension.DynamicDimensionManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
@@ -35,6 +32,7 @@ public class DOCTOR_M implements ModInitializer {
         DMBlocks.register();
         DMItems.register();
         DMCreativeTabs.register();
+        DMBlockEntities.register();
 
         // 生命周期
         ServerLifecycleEvents.SERVER_STARTED.register(server ->

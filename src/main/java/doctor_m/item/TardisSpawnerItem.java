@@ -8,7 +8,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -68,11 +67,14 @@ public class TardisSpawnerItem extends Item {
         BlockState lower = DMBlocks.TARDIS_EXTERIOR.defaultBlockState()
                 .setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.LOWER)
                 .setValue(AbstractTardisDoorBlock.FACING, facing)
-                .setValue(AbstractTardisDoorBlock.OPEN, true);   // 默认开门，方便立刻进入
+                .setValue(AbstractTardisDoorBlock.OPEN, true);
 
         level.setBlock(target, lower, 3);
         level.setBlock(target.above(),
                 lower.setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
+
+        // ★ 外门 BE 刚创建，写入外观 + TARDIS ID
+        TardisManager.syncDoorAppearance(server, data);
 
         // 3) 音效
         level.playSound(null, target, SoundEvents.ENDERMAN_TELEPORT,

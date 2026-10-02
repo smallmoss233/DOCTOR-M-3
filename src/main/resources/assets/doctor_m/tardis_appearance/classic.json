@@ -1,0 +1,7 @@
+{
+  "display_name": "Classic",
+  "exterior_closed": "doctor_m:tardis/classic/exterior_closed",
+  "exterior_open":   "doctor_m:tardis/classic/exterior_open",
+  "interior_closed": "doctor_m:tardis/classic/interior_closed",
+  "interior_open":   "doctor_m:tardis/classic/interior_open"
+}

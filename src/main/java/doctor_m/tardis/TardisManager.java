@@ -2,7 +2,7 @@ package doctor_m.tardis;
 
 import doctor_m.DMBlocks;
 import doctor_m.block.AbstractTardisDoorBlock;
-import doctor_m.block.TardisInteriorDoorBlock;
+import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpServerState;
 import mosslib.dimension.DimensionTemplate;
@@ -140,11 +140,15 @@ public final class TardisManager {
         // 先铺房间（幂等）
         TardisRoomGenerator.generate(level, data);
 
-        // 内门已存在 → 不重建
         BlockPos p = data.interiorPos();
-        if (level.getBlockState(p).is(DMBlocks.TARDIS_INTERIOR_DOOR)) return;
 
-        // ★ 从外门读初始状态（外门不存在时默认 true）
+        // 内门已存在 → 不重建，但顺手同步一次 BE（修修复 BE 丢失）
+        if (level.getBlockState(p).is(DMBlocks.TARDIS_INTERIOR_DOOR)) {
+            syncDoorAppearance(server, data);
+            return;
+        }
+
+        // 从外门读初始状态（外门不存在时默认 true）
         boolean open = readExteriorOpenOrDefault(server, data, true);
 
         BlockState lower = DMBlocks.TARDIS_INTERIOR_DOOR.defaultBlockState()
@@ -154,6 +158,9 @@ public final class TardisManager {
         level.setBlock(p, lower, 3);
         level.setBlock(p.above(),
                 lower.setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
+
+        // 统一走 syncDoorAppearance（内外门一起写）
+        syncDoorAppearance(server, data);
     }
 
     /** 服务器启动时调用：恢复所有 TARDIS 的内部维度，并确保内门方块存在。 */
@@ -161,6 +168,7 @@ public final class TardisManager {
         TardisRegistryData reg = getRegistry(server);
         for (TardisData data : reg.all()) {
             ensureInterior(server, data);
+            syncDoorAppearance(server, data);
 
             // 同步内门 = 外门状态（外门存在时才同步）
             ServerLevel ext = server.getLevel(data.exteriorDim());
@@ -319,12 +327,15 @@ public final class TardisManager {
         ServerLevel ext = server.getLevel(data.exteriorDim());
         if (ext != null) setDoorState(ext, data.exteriorPos(), open);
 
-        // 内门（方案 A：维度没加载就顺手创建）
+        // 内门（维度没加载就顺手创建）
         ResourceKey<Level> key = ResourceKey.create(
                 Registries.DIMENSION, DimensionTemplate.dimensionIdFor(data.id()));
         ServerLevel in = server.getLevel(key);
         if (in == null) in = DynamicDimensionManager.getOrCreate(server, key);
         if (in != null) setDoorState(in, data.interiorPos(), open);
+
+        // ★ 方块状态改了，BE 也要跟着更新
+        syncDoorAppearance(server, data);
     }
 
     /** 把一对上下半方块的状态设为 open。位置可以是上半或下半。 */
@@ -422,4 +433,40 @@ public final class TardisManager {
         // 新真门 OPEN 状态跟外门对齐
         boolean open = readExteriorOpenOrDefault(server, data, true);
         setDoorOpen(server, data, open);
-    }}
+    }
+
+    /** 把外观 / TARDIS ID / 开关状态同步到内外门 BE。 */
+    public static void syncDoorAppearance(MinecraftServer server, TardisData data) {
+        // ---- 外门 ----
+        ServerLevel ext = server.getLevel(data.exteriorDim());
+        if (ext != null) {
+            BlockPos pos = data.exteriorPos();
+            if (ext.getBlockEntity(pos) instanceof TardisDoorBlockEntity be) {
+                be.setAppearance(data.appearanceId());
+                be.setTardisId(data.id());
+                be.setExterior(true);
+                BlockState s = ext.getBlockState(pos);
+                if (s.getBlock() instanceof AbstractTardisDoorBlock) {
+                    be.setOpen(s.getValue(AbstractTardisDoorBlock.OPEN));
+                }
+            }
+        }
+
+        // ---- 内门 ----
+        ResourceKey<Level> key = ResourceKey.create(
+                Registries.DIMENSION, DimensionTemplate.dimensionIdFor(data.id()));
+        ServerLevel in = server.getLevel(key);
+        if (in != null) {
+            BlockPos pos = data.interiorPos();
+            if (in.getBlockEntity(pos) instanceof TardisDoorBlockEntity be) {
+                be.setAppearance(data.appearanceId());
+                be.setTardisId(data.id());
+                be.setExterior(false);
+                BlockState s = in.getBlockState(pos);
+                if (s.getBlock() instanceof AbstractTardisDoorBlock) {
+                    be.setOpen(s.getValue(AbstractTardisDoorBlock.OPEN));
+                }
+            }
+        }
+    }
+}

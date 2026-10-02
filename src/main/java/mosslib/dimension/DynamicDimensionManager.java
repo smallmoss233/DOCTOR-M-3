@@ -12,8 +12,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.biome.BiomeManager;
-import net.minecraft.world.level.biome.Biomes;
-import net.minecraft.world.level.biome.FixedBiomeSource;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.dimension.LevelStem;
 import net.minecraft.world.level.levelgen.FlatLevelSource;

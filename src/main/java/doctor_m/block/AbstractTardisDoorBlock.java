@@ -1,5 +1,6 @@
 package doctor_m.block;
 
+import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import net.minecraft.core.BlockPos;
@@ -16,11 +17,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.HorizontalDirectionalBlock;
-import net.minecraft.world.level.block.Mirror;
-import net.minecraft.world.level.block.Rotation;
+import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -29,13 +27,12 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class AbstractTardisDoorBlock extends Block {
+public abstract class AbstractTardisDoorBlock extends Block implements EntityBlock {
 
     public static final EnumProperty<DoubleBlockHalf> HALF = BlockStateProperties.DOUBLE_BLOCK_HALF;
     /** 26.3：DirectionProperty 类被合并，直接用 HorizontalDirectionalBlock.FACING。 */
@@ -240,4 +237,14 @@ public abstract class AbstractTardisDoorBlock extends Block {
      * </ul>
      */
     protected abstract TardisData findTardis(MinecraftServer server, ServerLevel level, BlockPos pos);
+
+    @Override
+    public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+        return new TardisDoorBlockEntity(pos, state);
+    }
+
+    @Override
+    protected RenderShape getRenderShape(BlockState state) {
+        return RenderShape.INVISIBLE;
+    }
 }
