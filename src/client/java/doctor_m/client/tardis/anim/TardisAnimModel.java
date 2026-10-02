@@ -19,18 +19,27 @@ public record TardisAnimModel(
 
     /**
      * 一个面。positions 长度 12（4 顶点 × xyz），uvs 长度 8（4 顶点 × uv）。
-     * 顶点已在解析阶段应用了 element 自身的静态旋转。
-     * normal 也是旋转后的方向（未归一化前是单位向量）。
      */
     public record Face(float[] positions, float[] uvs, Vector3f normal) {}
 
     /**
-     * 一个动画组。
-     * pivot 单位为格；rotationClosed / rotationOpen 为组在 closed/open 时的静态旋转。
+     * 一个动画组，包含若干 element。
+     * 组内每个 element 独立持有 pivot / rotation / translation / scale。
      */
-    public record Group(
+    public record Group(List<Element> elements) {}
+
+    /**
+     * 一个可动画 element。
+     * pivot       单位"格"（已 /16）
+     * rotation    四元数
+     * translation 单位"格"（已 /16）
+     * scale       倍数（默认 1,1,1）
+     */
+    public record Element(
             Vector3f pivot,
-            Quaternionf rotation,     // ★ 单字段
+            Quaternionf rotation,
+            Vector3f translation,
+            Vector3f scale,
             List<Face> faces
-    )  {}
+    ) {}
 }

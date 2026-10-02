@@ -22,8 +22,6 @@ public final class TardisAnimParser {
      * 8 个角索引（相对 from/to 顺序）：
      *  0:(x0,y0,z0) 1:(x1,y0,z0) 2:(x1,y1,z0) 3:(x0,y1,z0)
      *  4:(x0,y0,z1) 5:(x1,y0,z1) 6:(x1,y1,z1) 7:(x0,y1,z1)
-     *
-     * 每个方向顶点从"外侧看逆时针"排列。
      */
     private static int[] faceCorners(Direction dir) {
         return switch (dir) {
@@ -37,7 +35,7 @@ public final class TardisAnimParser {
     }
 
     /** UV 顺序对应 faceCorners：UL → LL → LR → UR */
-    private static float[] buildUvs(Direction dir, float u1, float v1, float u2, float v2) {
+    private static float[] buildUvs(float u1, float v1, float u2, float v2) {
         return new float[]{
                 u1, v1,
                 u1, v2,
@@ -57,6 +55,7 @@ public final class TardisAnimParser {
         Set<Integer> animated = new HashSet<>();
         for (Set<Integer> s : groupElements.values()) animated.addAll(s);
 
+        // ---- 静态部分 ----
         List<TardisAnimModel.Face> staticFaces = new ArrayList<>();
         for (int i = 0; i < elements.size(); i++) {
             if (!animated.contains(i)) {
@@ -64,6 +63,7 @@ public final class TardisAnimParser {
             }
         }
 
+        // ---- 动画组：逐 element 解析 ----
         Map<String, TardisAnimModel.Group> groupsOut = new LinkedHashMap<>();
         for (var e : groupElements.entrySet()) {
             String name = e.getKey();
@@ -72,41 +72,51 @@ public final class TardisAnimParser {
 
             List<Integer> indices = new ArrayList<>(e.getValue());
 
-            Vector3f pivot;
-            Quaternionf rot;
-            boolean bakeRotation;
+            // group 级兜底
+            Vector3f groupPivot = g.has("origin")
+                    ? readVec3(g.getAsJsonArray("origin")).mul(1f / 16f)
+                    : new Vector3f(0.5f, 0.5f, 0.5f);
 
-            if (g.has("rotation")) {
-                // 情况 A：group 自己带 rotation
-                pivot = readVec3(g.getAsJsonArray("origin")).mul(1f / 16f);
-                rot = readRotation(g.getAsJsonObject("rotation"));
-                bakeRotation = true;
-            } else if (indices.size() == 1) {
-                // 情况 B：group 无 rotation，但只有一个 element → 用 element 的
-                JsonObject el = elements.get(indices.get(0)).getAsJsonObject();
+            Quaternionf groupRot = g.has("rotation")
+                    ? readRotation(g.getAsJsonObject("rotation"))
+                    : new Quaternionf();
+
+            Vector3f groupTrans = g.has("position")
+                    ? readVec3(g.getAsJsonArray("position")).mul(1f / 16f)
+                    : new Vector3f();
+
+            Vector3f groupScale = g.has("scale")
+                    ? readVec3(g.getAsJsonArray("scale"))
+                    : new Vector3f(1, 1, 1);
+
+            List<TardisAnimModel.Element> elementsOut = new ArrayList<>();
+            for (int idx : indices) {
+                JsonObject el = elements.get(idx).getAsJsonObject();
+
+                Vector3f pivot = groupPivot;
+                Quaternionf rot = groupRot;
+                Vector3f trans = groupTrans;
+                Vector3f scl = groupScale;
+
                 if (el.has("rotation")) {
                     JsonObject r = el.getAsJsonObject("rotation");
-                    pivot = readVec3(r.getAsJsonArray("origin")).mul(1f / 16f);
+                    if (r.has("origin")) {
+                        pivot = readVec3(r.getAsJsonArray("origin")).mul(1f / 16f);
+                    }
                     rot = readRotation(r);
-                    bakeRotation = false;
-                } else {
-                    pivot = readVec3(g.getAsJsonArray("origin")).mul(1f / 16f);
-                    rot = new Quaternionf();
-                    bakeRotation = false;
                 }
-            } else {
-                // 情况 C：多 element 又没 group rotation → 回退
-                pivot = readVec3(g.getAsJsonArray("origin")).mul(1f / 16f);
-                rot = new Quaternionf();
-                bakeRotation = true;
+                if (el.has("position")) {
+                    trans = readVec3(el.getAsJsonArray("position")).mul(1f / 16f);
+                }
+                if (el.has("scale")) {
+                    scl = readVec3(el.getAsJsonArray("scale"));
+                }
+
+                List<TardisAnimModel.Face> elFaces = parseElement(el, false);
+                elementsOut.add(new TardisAnimModel.Element(pivot, rot, trans, scl, elFaces));
             }
 
-            List<TardisAnimModel.Face> faces = new ArrayList<>();
-            for (int idx : indices) {
-                faces.addAll(parseElement(elements.get(idx).getAsJsonObject(), bakeRotation));
-            }
-
-            groupsOut.put(name, new TardisAnimModel.Group(pivot, rot, faces));
+            groupsOut.put(name, new TardisAnimModel.Group(elementsOut));
         }
 
         Identifier tex = null;
@@ -161,7 +171,6 @@ public final class TardisAnimParser {
                 {x0, y0, z1}, {x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1}
         };
 
-        // element 自身的静态旋转（只在静态组里烘焙）
         Matrix4f mat = null;
         Matrix3f normalMat = null;
         if (bakeRotation && el.has("rotation")) {
@@ -196,7 +205,6 @@ public final class TardisAnimParser {
             JsonObject fJson = entry.getValue().getAsJsonObject();
             JsonArray uv = fJson.getAsJsonArray("uv");
 
-            // ★ Blockbench 的 UV 单位始终是 16 格制，与 texture_size 无关
             float u1 = uv.get(0).getAsFloat() / 16f;
             float v1 = uv.get(1).getAsFloat() / 16f;
             float u2 = uv.get(2).getAsFloat() / 16f;
@@ -214,7 +222,7 @@ public final class TardisAnimParser {
             Vector3f normal = new Vector3f(dir.getStepX(), dir.getStepY(), dir.getStepZ());
             if (normalMat != null) normalMat.transform(normal);
 
-            faces.add(new TardisAnimModel.Face(positions, buildUvs(dir, u1, v1, u2, v2), normal));
+            faces.add(new TardisAnimModel.Face(positions, buildUvs(u1, v1, u2, v2), normal));
         }
         return faces;
     }

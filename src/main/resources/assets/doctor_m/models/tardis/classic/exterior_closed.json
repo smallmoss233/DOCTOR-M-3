@@ -3,8 +3,8 @@
 	"credit": "Made with Blockbench",
 	"texture_size": [128, 128],
 	"textures": {
-		"0": "doctor_m:block/tardis/classic/classic",
-		"particle": "doctor_m:block/tardis/classic/classic"
+		"0": "doctor_m:block/tardis/classic",
+		"particle": "doctor_m:block/tardis/classic"
 	},
 	"elements": [
 		{
@@ -225,24 +225,38 @@
 			}
 		},
 		{
-			"name": "右门",
-			"from": [3, 1, 2.3],
-			"to": [4, 26, 6.9],
-			"rotation": {"x": 0, "y": 90, "z": 0, "origin": [3.5, 13.5, 2.3]},
+			"name": "左门",
+			"from": [0.89765, 1, 5.95659],
+			"to": [1.89765, 26, 10.55659],
+			"rotation": {"x": 0, "y": -135, "z": 0, "origin": [7.925, 13.5, 8.18107]},
 			"faces": {
-				"north": {"uv": [5.375, 8.875, 5.5, 12], "texture": "#0"},
-				"east": {"uv": [6.25, 0, 6.875, 3.125], "texture": "#0"},
-				"south": {"uv": [5.5, 8.875, 5.625, 12], "texture": "#0"},
-				"west": {"uv": [6.25, 3.125, 6.875, 6.25], "texture": "#0"},
-				"up": {"uv": [9.125, 0, 9.25, 0.625], "texture": "#0"},
-				"down": {"uv": [0.5, 9.125, 0.625, 9.75], "texture": "#0"}
+				"north": {"uv": [5.125, 8.875, 5.25, 12], "texture": "#0"},
+				"east": {"uv": [5.625, 0, 6.25, 3.125], "texture": "#0"},
+				"south": {"uv": [5.25, 8.875, 5.375, 12], "texture": "#0"},
+				"west": {"uv": [5.625, 3.125, 6.25, 6.25], "texture": "#0"},
+				"up": {"uv": [3.375, 9, 3.5, 9.625], "texture": "#0"},
+				"down": {"uv": [9, 8.875, 9.125, 9.5], "texture": "#0"}
 			}
 		},
 		{
 			"name": "左门",
-			"from": [12.2, 1, -2.3],
-			"to": [13.2, 26, 2.3],
-			"rotation": {"x": 0, "y": 90, "z": 0, "origin": [12.7, 13.5, 2.3]},
+			"from": [13.55607, 1, 4.88107],
+			"to": [14.55607, 26, 11.48107],
+			"rotation": {"x": 0, "y": 90, "z": 0, "origin": [7.925, 13.5, 8.18107]},
+			"faces": {
+				"north": {"uv": [5.125, 8.875, 5.25, 12], "texture": "#0"},
+				"east": {"uv": [5.625, 0, 6.25, 3.125], "texture": "#0"},
+				"south": {"uv": [5.25, 8.875, 5.375, 12], "texture": "#0"},
+				"west": {"uv": [5.625, 3.125, 6.25, 6.25], "texture": "#0"},
+				"up": {"uv": [3.375, 9, 3.5, 9.625], "texture": "#0"},
+				"down": {"uv": [9, 8.875, 9.125, 9.5], "texture": "#0"}
+			}
+		},
+		{
+			"name": "左门",
+			"from": [13.95235, 1, 5.95659],
+			"to": [14.95235, 26, 10.55659],
+			"rotation": {"x": 0, "y": 135, "z": 0, "origin": [7.925, 13.5, 8.18107]},
 			"faces": {
 				"north": {"uv": [5.125, 8.875, 5.25, 12], "texture": "#0"},
 				"east": {"uv": [5.625, 0, 6.25, 3.125], "texture": "#0"},
@@ -287,18 +301,11 @@
 					"children": [14, 15, 16, 17]
 				},
 				{
-					"name": "anim_right_door",
-					"origin": [12.4, -8, -5.2],
-					"scope": 0,
-					"color": 0,
-					"children": [18]
-				},
-				{
 					"name": "anim_left_door",
 					"origin": [12.4, -8, -5.2],
-					"scope": 0,
+                    "scope": 0,
 					"color": 0,
-					"children": [19]
+					"children": [18, 19, 20]
 				}
 			]
 		}

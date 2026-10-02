@@ -1,7 +1,6 @@
 package doctor_m.client.tardis.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.client.tardis.anim.TardisAnimCache;
@@ -9,15 +8,14 @@ import doctor_m.client.tardis.anim.TardisAnimModel;
 import doctor_m.client.tardis.appearance.TardisAppearance;
 import doctor_m.client.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.client.tardis.appearance.TardisModelTransforms;
-import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
-import net.minecraft.client.renderer.rendertype.RenderSetup;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.resources.model.cuboid.ItemTransform;
 import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
@@ -30,22 +28,18 @@ import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 public class TardisDoorRenderer
         implements BlockEntityRenderer<TardisDoorBlockEntity, TardisDoorRenderState> {
 
-    /** 客户端动画状态：方块位置 → {上次开状态, 动画起点时间}。 */
-    private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
     private static final long ANIM_DURATION_MS = 400L;
+    private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
 
     private record AnimState(boolean lastOpen, long startMs) {}
 
     public TardisDoorRenderer(BlockEntityRendererProvider.Context ctx) {}
-
-    private static RenderType tardisSolid(Identifier texture) {
-        return RenderTypes.solidMovingBlock();
-    }
 
     @Override
     public TardisDoorRenderState createRenderState() {
@@ -67,7 +61,7 @@ public class TardisDoorRenderer
             state.facing = s.getValue(AbstractTardisDoorBlock.FACING);
         }
 
-        // ---- 开门/关门动画进度 ----
+        // ---- 开关门动画进度 ----
         BlockPos pos = be.getBlockPos();
         AnimState prev = ANIM_STATES.get(pos);
         boolean isOpen = be.isOpen();
@@ -100,7 +94,6 @@ public class TardisDoorRenderer
         if (closed == null || open == null) return;
 
         float progress = Mth.clamp(state.openProgress, 0f, 1f);
-
         float rot = 180.0F - state.facing.toYRot();
 
         poseStack.pushPose();
@@ -121,29 +114,50 @@ public class TardisDoorRenderer
 
         Identifier tex = closed.texture();
         if (tex == null) return;
-        RenderType rt = tardisSolid(tex);
+        RenderType rt = RenderTypes.solidMovingBlock();
 
         // 1) 静态部分
         submitGeometry(poseStack, collector, rt, closed.staticFaces(), tex, state.lightCoords);
 
-        // 2) 每个动画组
+        // 2) 每个动画组 —— 逐 element 插值
         for (var entry : closed.groups().entrySet()) {
             String name = entry.getKey();
             TardisAnimModel.Group cg = entry.getValue();
             TardisAnimModel.Group og = open.groups().get(name);
             if (og == null) continue;
 
-            Vector3f pivot = cg.pivot();
-            Quaternionf q = new Quaternionf(cg.rotation()).slerp(og.rotation(), progress);
+            List<TardisAnimModel.Element> cEls = cg.elements();
+            List<TardisAnimModel.Element> oEls = og.elements();
+            if (cEls.size() != oEls.size()) continue;
 
-            poseStack.pushPose();
-            poseStack.translate(pivot.x(), pivot.y(), pivot.z());
-            poseStack.mulPose(new Matrix4f().rotation(q));
-            poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
+            for (int i = 0; i < cEls.size(); i++) {
+                TardisAnimModel.Element ce = cEls.get(i);
+                TardisAnimModel.Element oe = oEls.get(i);
 
-            submitGeometry(poseStack, collector, rt, cg.faces(), tex, state.lightCoords);
+                Vector3f pivot = ce.pivot();
+                Quaternionf q  = new Quaternionf(ce.rotation()).slerp(oe.rotation(), progress);
+                Vector3f tr    = new Vector3f(ce.translation()).lerp(oe.translation(), progress);
+                Vector3f sc    = new Vector3f(ce.scale()).lerp(oe.scale(), progress);
 
-            poseStack.popPose();
+                poseStack.pushPose();
+
+                // 1) 绕枢轴旋转
+                poseStack.translate(pivot.x(), pivot.y(), pivot.z());
+                poseStack.mulPose(new Matrix4f().rotation(q));
+                poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
+
+                // 2) 平移
+                poseStack.translate(tr.x(), tr.y(), tr.z());
+
+                // 3) 缩放（以枢轴为中心）
+                poseStack.translate(pivot.x(), pivot.y(), pivot.z());
+                poseStack.scale(sc.x(), sc.y(), sc.z());
+                poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
+
+                submitGeometry(poseStack, collector, rt, ce.faces(), tex, state.lightCoords);
+
+                poseStack.popPose();
+            }
         }
 
         poseStack.popPose();
@@ -156,14 +170,13 @@ public class TardisDoorRenderer
     private static void submitGeometry(PoseStack poseStack,
                                        SubmitNodeCollector collector,
                                        RenderType renderType,
-                                       java.util.List<TardisAnimModel.Face> faces,
+                                       List<TardisAnimModel.Face> faces,
                                        Identifier textureId,
                                        int lightCoords) {
         if (faces.isEmpty()) return;
 
         var tm = net.minecraft.client.Minecraft.getInstance().getTextureManager();
-        var atlas = (net.minecraft.client.renderer.texture.TextureAtlas)
-                tm.getTexture(net.minecraft.client.renderer.texture.TextureAtlas.LOCATION_BLOCKS);
+        var atlas = (TextureAtlas) tm.getTexture(TextureAtlas.LOCATION_BLOCKS);
         var sprite = atlas.getSprite(textureId);
 
         float u0 = sprite.getU0();
