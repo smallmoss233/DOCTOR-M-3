@@ -9,4 +9,5 @@ public class TardisDoorRenderState extends BlockEntityRenderState {
     public boolean open;
     public boolean exterior;
     public Direction facing = Direction.NORTH;
+    public float openProgress = 0.0f;
 }
