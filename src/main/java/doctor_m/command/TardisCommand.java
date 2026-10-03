@@ -1,6 +1,7 @@
 package doctor_m.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -16,16 +17,20 @@ import net.minecraft.commands.Commands;
 import net.minecraft.commands.arguments.IdentifierArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public final class TardisCommand {
@@ -106,7 +111,20 @@ public final class TardisCommand {
                         .then(Commands.literal("reload")
                                 .executes(TardisCommand::reloadDims))
                         .then(Commands.literal("purge")
-                                .executes(TardisCommand::purgeAll)))
+                                .executes(TardisCommand::purgeAll))
+                        // ---------- createdim [id] ----------
+                        .then(Commands.literal("createdim")
+                                .executes(TardisCommand::createDimRandom)
+                                .then(Commands.argument("id", StringArgumentType.greedyString())
+                                        .executes(TardisCommand::createDimById)))
+                        // ---------- tpd <dim> [x y z] ----------
+                        .then(Commands.literal("tpd")
+                                .then(Commands.argument("dim", StringArgumentType.string())
+                                        .executes(TardisCommand::tpDimDefault)
+                                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                                .executes(TardisCommand::tpDimAt)))))))
         );
     }
 
@@ -366,7 +384,6 @@ public final class TardisCommand {
         UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
         if (id == null) return 0;
 
-        // ★ 用 ResourceLocationArgument.id() 拿 Identifier
         Identifier appearance = IdentifierArgument.getId(ctx, "appearance");
 
         TardisData data = TardisManager.get(server, id);
@@ -451,6 +468,101 @@ public final class TardisCommand {
     }
 
     // ================================================================
+    //                      debug: createdim
+    // ================================================================
+
+    private static int createDimRandom(CommandContext<CommandSourceStack> ctx) {
+        return createDim(ctx, UUID.randomUUID().toString());
+    }
+
+    private static int createDimById(CommandContext<CommandSourceStack> ctx) {
+        return createDim(ctx, StringArgumentType.getString(ctx, "id"));
+    }
+
+    private static int createDim(CommandContext<CommandSourceStack> ctx, String input) {
+        CommandSourceStack source = ctx.getSource();
+        MinecraftServer server = source.getServer();
+
+        Identifier dimId = parseDimInput(input);
+        if (dimId == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.debug.createdim.invalid", input));
+            return 0;
+        }
+
+        ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, dimId);
+
+        ServerLevel level = DynamicDimensionManager.getOrCreate(server, key);
+        if (level == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.debug.createdim.fail", dimId.toString()));
+            return 0;
+        }
+
+        source.sendSuccess(
+                () -> Component.translatable(
+                        "doctor_m.command.debug.createdim.success", dimId.toString()),
+                true);
+        return 1;
+    }
+
+    // ================================================================
+    //                      debug: tpd
+    // ================================================================
+
+    private static int tpDimDefault(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        return tpDim(ctx, 0, 100, 0);
+    }
+
+    private static int tpDimAt(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        int x = IntegerArgumentType.getInteger(ctx, "x");
+        int y = IntegerArgumentType.getInteger(ctx, "y");
+        int z = IntegerArgumentType.getInteger(ctx, "z");
+        return tpDim(ctx, x, y, z);
+    }
+
+    private static int tpDim(CommandContext<CommandSourceStack> ctx, int x, int y, int z) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        MinecraftServer server = source.getServer();
+
+        String input = StringArgumentType.getString(ctx, "dim");
+        Identifier dimId = parseDimInput(input);
+        if (dimId == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.debug.tpd.invalid", input));
+            return 0;
+        }
+
+        ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, dimId);
+
+        // 已加载就直接用；否则尝试创建
+        ServerLevel level = server.getLevel(key);
+        if (level == null) {
+            level = DynamicDimensionManager.getOrCreate(server, key);
+            if (level == null) {
+                source.sendFailure(Component.translatable(
+                        "doctor_m.command.debug.tpd.fail", dimId.toString()));
+                return 0;
+            }
+        }
+
+        player.teleportTo(level,
+                x + 0.5, y, z + 0.5,
+                Set.of(),
+                player.getYRot(), player.getXRot(),
+                false);
+
+        final ServerLevel fl = level;
+        source.sendSuccess(
+                () -> Component.translatable(
+                        "doctor_m.command.debug.tpd.success",
+                        dimId.toString(), x, y, z),
+                false);
+        return 1;
+    }
+
+    // ================================================================
     //                      helpers
     // ================================================================
 
@@ -466,6 +578,25 @@ public final class TardisCommand {
             return UUID.fromString(raw);
         } catch (IllegalArgumentException e) {
             source.sendFailure(Component.translatable("doctor_m.command.error.invalid_id", raw));
+            return null;
+        }
+    }
+
+    /**
+     * 解析维度输入。
+     * <ul>
+     *   <li>含 ":"  → 完整 ID，例：{@code my_ns:custom/path}</li>
+     *   <li>不含 ":" → 补默认前缀，例：{@code test} → {@code doctor_m:tardis/test}</li>
+     * </ul>
+     * @return 解析失败返回 null
+     */
+    private static Identifier parseDimInput(String input) {
+        try {
+            if (input.contains(":")) {
+                return Identifier.parse(input);
+            }
+            return Identifier.fromNamespaceAndPath("doctor_m", "tardis/" + input);
+        } catch (Exception e) {
             return null;
         }
     }
