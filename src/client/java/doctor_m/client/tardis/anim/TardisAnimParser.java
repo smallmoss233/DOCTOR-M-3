@@ -18,11 +18,6 @@ public final class TardisAnimParser {
 
     private static final String ANIM_PREFIX = "anim_";
 
-    /**
-     * 8 个角索引（相对 from/to 顺序）：
-     *  0:(x0,y0,z0) 1:(x1,y0,z0) 2:(x1,y1,z0) 3:(x0,y1,z0)
-     *  4:(x0,y0,z1) 5:(x1,y0,z1) 6:(x1,y1,z1) 7:(x0,y1,z1)
-     */
     private static int[] faceCorners(Direction dir) {
         return switch (dir) {
             case NORTH -> new int[]{2, 1, 0, 3};
@@ -34,7 +29,6 @@ public final class TardisAnimParser {
         };
     }
 
-    /** UV 顺序对应 faceCorners：UL → LL → LR → UR */
     private static float[] buildUvs(float u1, float v1, float u2, float v2) {
         return new float[]{
                 u1, v1,
@@ -49,11 +43,11 @@ public final class TardisAnimParser {
         JsonArray groups = json.has("groups") ? json.getAsJsonArray("groups") : new JsonArray();
 
         Map<String, JsonObject> groupObjs = new LinkedHashMap<>();
-        Map<String, Set<Integer>> groupElements = new LinkedHashMap<>();
+        Map<String, List<Integer>> groupElements = new LinkedHashMap<>();
         collectAnimGroups(groups, groupObjs, groupElements);
 
         Set<Integer> animated = new HashSet<>();
-        for (Set<Integer> s : groupElements.values()) animated.addAll(s);
+        for (List<Integer> s : groupElements.values()) animated.addAll(s);
 
         // ---- 静态部分 ----
         List<TardisAnimModel.Face> staticFaces = new ArrayList<>();
@@ -70,7 +64,7 @@ public final class TardisAnimParser {
             JsonObject g = groupObjs.get(name);
             if (g == null) continue;
 
-            List<Integer> indices = new ArrayList<>(e.getValue());
+            List<Integer> indices = e.getValue();
 
             // group 级兜底
             Vector3f groupPivot = g.has("origin")
@@ -78,7 +72,7 @@ public final class TardisAnimParser {
                     : new Vector3f(0.5f, 0.5f, 0.5f);
 
             Quaternionf groupRot = g.has("rotation")
-                    ? readRotation(g.getAsJsonObject("rotation"))
+                    ? readRotation(g)
                     : new Quaternionf();
 
             Vector3f groupTrans = g.has("position")
@@ -112,7 +106,7 @@ public final class TardisAnimParser {
                     scl = readVec3(el.getAsJsonArray("scale"));
                 }
 
-                List<TardisAnimModel.Face> elFaces = parseElement(el, false);
+                List<TardisAnimModel.Face> elFaces = parseElement(el, true);
                 elementsOut.add(new TardisAnimModel.Element(pivot, rot, trans, scl, elFaces));
             }
 
@@ -132,14 +126,14 @@ public final class TardisAnimParser {
 
     private static void collectAnimGroups(JsonArray groups,
                                           Map<String, JsonObject> outObjs,
-                                          Map<String, Set<Integer>> outElems) {
+                                          Map<String, List<Integer>> outElems) {
         for (JsonElement g : groups) {
             if (!g.isJsonObject()) continue;
             JsonObject o = g.getAsJsonObject();
             String name = o.has("name") ? o.get("name").getAsString() : "";
 
             if (name.startsWith(ANIM_PREFIX)) {
-                Set<Integer> idx = new HashSet<>();
+                List<Integer> idx = new ArrayList<>();
                 collectIndices(o, idx);
                 outObjs.put(name, o);
                 outElems.put(name, idx);
@@ -149,7 +143,7 @@ public final class TardisAnimParser {
         }
     }
 
-    private static void collectIndices(JsonObject group, Set<Integer> out) {
+    private static void collectIndices(JsonObject group, List<Integer> out) {
         if (!group.has("children")) return;
         for (JsonElement c : group.getAsJsonArray("children")) {
             if (c.isJsonPrimitive()) out.add(c.getAsInt());
@@ -175,7 +169,11 @@ public final class TardisAnimParser {
         Matrix3f normalMat = null;
         if (bakeRotation && el.has("rotation")) {
             JsonObject rot = el.getAsJsonObject("rotation");
-            float rx = getFloat(rot, "x"), ry = getFloat(rot, "y"), rz = getFloat(rot, "z");
+
+            // ★ 兼容三种格式：{x,y,z} / {angle,axis} / [x,y,z]
+            Vector3f deg = readEulerDeg(rot);
+            float rx = deg.x, ry = deg.y, rz = deg.z;
+
             JsonArray org = rot.has("origin") ? rot.getAsJsonArray("origin") : null;
             float px = org != null ? org.get(0).getAsFloat() / 16f : 0.5f;
             float py = org != null ? org.get(1).getAsFloat() / 16f : 0.5f;
@@ -201,6 +199,14 @@ public final class TardisAnimParser {
         for (var entry : facesJson.entrySet()) {
             Direction dir = Direction.byName(entry.getKey());
             if (dir == null) continue;
+
+            // 跳过零面积退化面
+            boolean degenerate = switch (dir) {
+                case NORTH, SOUTH -> (x0 == x1) || (y0 == y1);
+                case UP, DOWN     -> (x0 == x1) || (z0 == z1);
+                case EAST, WEST   -> (y0 == y1) || (z0 == z1);
+            };
+            if (degenerate) continue;
 
             JsonObject fJson = entry.getValue().getAsJsonObject();
             JsonArray uv = fJson.getAsJsonArray("uv");
@@ -237,6 +243,45 @@ public final class TardisAnimParser {
         return new Vector3f(a.get(0).getAsFloat(), a.get(1).getAsFloat(), a.get(2).getAsFloat());
     }
 
+    /**
+     * 从 rotation 对象读欧拉角（度），兼容三种格式：
+     * <ul>
+     *   <li>{@code {x, y, z, origin}}</li>
+     *   <li>{@code {angle, axis, origin}}</li>
+     *   <li>{@code [x, y, z]}</li>
+     * </ul>
+     */
+    private static Vector3f readEulerDeg(JsonObject rot) {
+        if (rot == null) return new Vector3f();
+
+        if (rot.has("angle") && rot.has("axis")) {
+            float a = rot.get("angle").getAsFloat();
+            return switch (rot.get("axis").getAsString()) {
+                case "x" -> new Vector3f(a, 0, 0);
+                case "y" -> new Vector3f(0, a, 0);
+                case "z" -> new Vector3f(0, 0, a);
+                default -> new Vector3f();
+            };
+        }
+
+        if (rot.isJsonArray()) {
+            JsonArray a = rot.getAsJsonArray();
+            return new Vector3f(
+                    a.get(0).getAsFloat(),
+                    a.get(1).getAsFloat(),
+                    a.get(2).getAsFloat());
+        }
+
+        return new Vector3f(
+                rot.has("x") ? rot.get("x").getAsFloat() : 0f,
+                rot.has("y") ? rot.get("y").getAsFloat() : 0f,
+                rot.has("z") ? rot.get("z").getAsFloat() : 0f);
+    }
+
+    /**
+     * 读旋转四元数。入参可以是 group / element 本身（含 rotation 字段），
+     * 也可以是 rotation 对象本身。
+     */
     private static Quaternionf readRotation(JsonObject rotationObject) {
         if (rotationObject == null) return new Quaternionf();
 
@@ -245,32 +290,10 @@ public final class TardisAnimParser {
             r = rotationObject.getAsJsonObject("rotation");
         }
 
-        if (r.isJsonArray()) {
-            JsonArray a = r.getAsJsonArray();
-            return new Quaternionf().rotationXYZ(
-                    (float) Math.toRadians(a.get(0).getAsFloat()),
-                    (float) Math.toRadians(a.get(1).getAsFloat()),
-                    (float) Math.toRadians(a.get(2).getAsFloat()));
-        }
-
-        if (r.has("angle") && r.has("axis")) {
-            float angle = r.get("angle").getAsFloat();
-            String axis = r.get("axis").getAsString();
-            Quaternionf q = new Quaternionf();
-            switch (axis) {
-                case "x" -> q.rotationX((float) Math.toRadians(angle));
-                case "y" -> q.rotationY((float) Math.toRadians(angle));
-                case "z" -> q.rotationZ((float) Math.toRadians(angle));
-            }
-            return q;
-        }
-
-        float rx = r.has("x") ? r.get("x").getAsFloat() : 0f;
-        float ry = r.has("y") ? r.get("y").getAsFloat() : 0f;
-        float rz = r.has("z") ? r.get("z").getAsFloat() : 0f;
+        Vector3f deg = readEulerDeg(r);
         return new Quaternionf().rotationXYZ(
-                (float) Math.toRadians(rx),
-                (float) Math.toRadians(ry),
-                (float) Math.toRadians(rz));
+                (float) Math.toRadians(deg.x),
+                (float) Math.toRadians(deg.y),
+                (float) Math.toRadians(deg.z));
     }
 }

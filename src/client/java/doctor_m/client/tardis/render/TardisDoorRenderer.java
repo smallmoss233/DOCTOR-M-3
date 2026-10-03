@@ -7,6 +7,7 @@ import doctor_m.client.tardis.anim.TardisAnimCache;
 import doctor_m.client.tardis.anim.TardisAnimModel;
 import doctor_m.client.tardis.appearance.TardisAppearance;
 import doctor_m.client.tardis.appearance.TardisAppearanceRegistry;
+import doctor_m.client.tardis.appearance.TardisModelKeys;
 import doctor_m.client.tardis.appearance.TardisModelTransforms;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
@@ -89,12 +90,19 @@ public class TardisDoorRenderer
         Identifier openId   = state.exterior ? app.exteriorOpen()   : app.interiorOpen();
         if (closedId == null || openId == null) return;
 
-        TardisAnimModel closed = TardisAnimCache.get(closedId);
-        TardisAnimModel open   = TardisAnimCache.get(openId);
-        if (closed == null || open == null) return;
-
         float progress = Mth.clamp(state.openProgress, 0f, 1f);
         float rot = 180.0F - state.facing.toYRot();
+
+        // ---- 判断是否处于动画中 ----
+        boolean animating;
+        if (progress <= 0.001f || progress >= 0.999f) {
+            animating = false;   // 完全静止
+        } else {
+            TardisAnimModel c = TardisAnimCache.get(closedId);
+            TardisAnimModel o = TardisAnimCache.get(openId);
+            animating = c != null && o != null
+                    && (!c.groups().isEmpty() || !o.groups().isEmpty());
+        }
 
         poseStack.pushPose();
         poseStack.translate(0.5, 0.0, 0.5);
@@ -112,14 +120,48 @@ public class TardisDoorRenderer
         poseStack.mulPose(new Matrix4f().rotationY((float) Math.toRadians(rot)));
         poseStack.translate(-0.5, 0.0, -0.5);
 
+        if (animating) {
+            submitAnimated(poseStack, collector, closedId, openId, progress, state.lightCoords);
+        } else {
+            Identifier modelId = (progress < 0.5f) ? closedId : openId;
+            submitVanilla(poseStack, collector, modelId, state.lightCoords);
+        }
+
+        poseStack.popPose();
+    }
+
+    /** 静止：走 vanilla 模型（完整功能，处理退化几何） */
+    private static void submitVanilla(PoseStack poseStack, SubmitNodeCollector collector,
+                                      Identifier modelId, int lightCoords) {
+        var mm = (net.fabricmc.fabric.api.client.model.loading.v1.FabricModelManager)
+                net.minecraft.client.Minecraft.getInstance().getModelManager();
+        net.minecraft.client.renderer.block.dispatch.BlockStateModel model =
+                mm.getModel(TardisModelKeys.of(modelId));
+        if (model == null) return;
+
+        List<net.minecraft.client.renderer.block.dispatch.BlockStateModelPart> parts =
+                new java.util.ArrayList<>();
+        model.collectParts(net.minecraft.util.RandomSource.create(0), parts);
+        if (parts.isEmpty()) return;
+
+        collector.submitBlockModel(poseStack, RenderTypes.solidMovingBlock(),
+                parts, new int[0], lightCoords, 0, 0);
+    }
+
+    /** 动画中：自定义插值渲染 */
+    private static void submitAnimated(PoseStack poseStack, SubmitNodeCollector collector,
+                                       Identifier closedId, Identifier openId,
+                                       float progress, int lightCoords) {
+        TardisAnimModel closed = TardisAnimCache.get(closedId);
+        TardisAnimModel open = TardisAnimCache.get(openId);
+        if (closed == null || open == null) return;
+
         Identifier tex = closed.texture();
         if (tex == null) return;
         RenderType rt = RenderTypes.solidMovingBlock();
 
-        // 1) 静态部分
-        submitGeometry(poseStack, collector, rt, closed.staticFaces(), tex, state.lightCoords);
+        submitGeometry(poseStack, collector, rt, closed.staticFaces(), tex, lightCoords);
 
-        // 2) 每个动画组 —— 逐 element 插值
         for (var entry : closed.groups().entrySet()) {
             String name = entry.getKey();
             TardisAnimModel.Group cg = entry.getValue();
@@ -135,15 +177,21 @@ public class TardisDoorRenderer
                 TardisAnimModel.Element oe = oEls.get(i);
 
                 Vector3f pivot = ce.pivot();
-                Quaternionf q  = new Quaternionf(ce.rotation()).slerp(oe.rotation(), progress);
                 Vector3f tr    = new Vector3f(ce.translation()).lerp(oe.translation(), progress);
                 Vector3f sc    = new Vector3f(ce.scale()).lerp(oe.scale(), progress);
+
+                // ★ 世界增量旋转（几何已烘焙 qClosed，这里只应用增量）
+                Quaternionf qClosed = ce.rotation();
+                Quaternionf qOpen   = oe.rotation();
+                Quaternionf qDelta  = new Quaternionf(qOpen)
+                        .mul(new Quaternionf(qClosed).invert());
+                Quaternionf qT      = new Quaternionf().slerp(qDelta, progress);
 
                 poseStack.pushPose();
 
                 // 1) 绕枢轴旋转
                 poseStack.translate(pivot.x(), pivot.y(), pivot.z());
-                poseStack.mulPose(new Matrix4f().rotation(q));
+                poseStack.mulPose(new Matrix4f().rotation(qT));
                 poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
 
                 // 2) 平移
@@ -154,13 +202,10 @@ public class TardisDoorRenderer
                 poseStack.scale(sc.x(), sc.y(), sc.z());
                 poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
 
-                submitGeometry(poseStack, collector, rt, ce.faces(), tex, state.lightCoords);
-
+                submitGeometry(poseStack, collector, rt, ce.faces(), tex, lightCoords);
                 poseStack.popPose();
             }
         }
-
-        poseStack.popPose();
     }
 
     // ================================================================
