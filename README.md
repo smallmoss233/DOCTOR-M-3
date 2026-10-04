@@ -28,8 +28,9 @@
 - ✅ 中英双语文案
 - ✅ MossLib 工具库集成
 - ✅ 无缝传送技术集成
-- ✅ 骨骼动画系统（`anim_` 组 + 枢轴插值）
-- ✅ 内外门开关门动画
+- ✅ **基岩版模型渲染管线（Bedrock Geometry / Animation）**
+- ✅ **骨骼动画系统（`anim_` 组 + 枢轴插值）**
+- ✅ **内外门开关门动画**
 
 ---
 
@@ -88,13 +89,49 @@
 - **`PayloadRegistrar`**——声明式网络包注册
 - **`AutoRegister`**——声明式内容注册（1.21.2+ 的 `setId` 兼容）
 
-### 🦴 外观动画系统
-- **`anim_` 组规范**——模型里以 `anim_` 开头的 group 自动被视为可动画部件
-- **枢轴旋转插值**——`closed` / `open` 两份模型之间用四元数 slerp 平滑过渡
-- **内外门通用**——同一套解析器 + 渲染器处理 4 个模型（外关 / 外开 / 内关 / 内开）
-- **程序生成几何**——不依赖原版方块模型烘焙，运行时动态构建顶点
-- **Blockbench 原生兼容**——支持标准 Java 模型导出，无需额外插件
-- **多外观共存**——每个外观独立 4 模型 + 1 纹理，运行时按 ID 加载
+### 🦴 基岩版模型与动画系统
+
+不再依赖原版方块模型烘焙，也不局限于 Java 版模型格式——DM3 内置了一套**完整的 Bedrock Geometry / Animation 渲染管线**，Blockbench 里怎么摆，游戏里就怎么渲。
+
+#### 渲染管线（`BedrockModelRenderer`）
+- **通用基岩几何渲染器**——接受任意 `BedrockGeometryModel`，不知道 TARDIS 是什么，可复用于任何模型
+- **Bedrock 原生坐标**——+X 东 / +Y 上 / +Z 南，与 Minecraft 世界坐标一致，**不做任何轴翻转**
+- **完整骨骼树递归**——父骨骼 → 子骨骼，逐级累积变换矩阵
+- **cube 独立 pivot + rotation**——每个 cube 可单独设定旋转中心与欧拉角
+- **六面独立 UV**——每个面可独立指定 UV 矩形、正负 `uv_size`、`flipU` / `flipV` 标记
+- **镜像支持**——`mirror: true` 语义正确还原（U 翻转 + 几何同步）
+
+#### 数据结构（`BedrockGeometryModel` / `BedrockAnimationModel`）
+- **几何**：`Bone` / `Cube` / `FaceUv` 三层 record，纯数据、不可变
+- **动画**：`Animation` / `BoneTracks` / `Keyframe` 三层 record，支持 `rotation` / `position` / `scale` 三通道
+- **X 轴镜像**（`mirrorX()`）——用于修正 Blockbench 里"从内往外看"建模的模型：几何、旋转、UV 一次性镜像，渲染层保持干净
+- **动画镜像**（`BedrockAnimationModel.mirrorX()`）——关键帧的 Y / Z 欧拉角与 X 位移同步镜像，与几何镜像配套
+
+#### 缓存与加载（`BedrockCache`）
+- **Fabric Resource Reload**——随资源包重载自动重新解析，无需重启
+- **几何 / 动画分表**——各自独立 map，按 `Identifier` 索引
+- **appearance 驱动加载**——只加载当前外观实际引用的几何 / 动画文件，不浪费 I/O
+- **零拷贝解析**——Gson 流式读取，直接构建 record
+
+#### 解析器（`BedrockParser`）
+- **标准 Blockbench 导出**——`format_version: 1.8.0` 的几何与动画 JSON
+- **亚像素 UV**——用 `float` 而非 `int`，支持 16×16 以上的精细纹理
+- **负 `uv_size` 语义**——折算为「原点左移 + 正尺寸 + flip 标记」
+- **`hold_on_last_frame`**——正确识别为"停在最后一帧"而非"循环"
+- **关键帧排序 + 线性插值**——`rotation` / `position` / `scale` 三通道统一采样
+
+#### 门动画集成（`TardisDoorRenderer`）
+- **外观 ID 路由**——从 `TardisDoorRenderState` 取 `appearanceId`，查表得 `TardisAsset.Bedrock`
+- **开关动画选择**——`open` 状态决定播 `openAnimation` 还是 `closeAnimation`
+- **时长 clamp**——`loop=false` 时自动 `min(elapsed, length)`，动画播完停住
+- **朝向旋转**——按方块 `FACING` 旋转模型，`MODEL_FACING` 常量标注模型在 Blockbench 里的正面
+- **偏移 + 全局缩放**——外观 JSON 里的 `offset` / `scale` 字段运行时应用
+
+#### 外观系统（`TardisAsset.Bedrock` + `TardisAppearance`）
+- **JSON 驱动**——每个外观独立配置 `geometry` / `animation` / `texture` / `open` / `close` / `offset` / `scale`
+- **多外观共存**——每个外观独立的几何 + 动画 + 纹理，运行时按 ID 加载
+- **开关动画可选**——`open` / `close` 字段可留空，退化为静态模型
+- **Blockbench 原生兼容**——无需额外插件，导出即可用
 
 ---
 
@@ -105,6 +142,13 @@
 - **飞行 / 时间旅行**——选择目标坐标与时间点，起飞降落
 - **变色龙电路**——将 TARDIS 外观伪装成周围方块
 - **多房间扩展**——图书馆、衣帽间、游泳池……
+
+### 🦴 动画系统扩展
+- **`position` / `scale` 通道**——骨骼位移动画与缩放动画
+- **缓动曲线**——`catmullrom` / `smooth` 关键帧插值
+- **动画状态机**——idle / takeoff / landing 等多状态切换
+- **声音同步**——关键帧事件触发音效
+- **粒子绑定**——关键帧事件生成粒子
 
 ### 🔐 访问控制
 - **可信玩家列表**——TARDIS 主人可授权他人进入
@@ -140,7 +184,7 @@
 
 ## 开发状态
 
-**Pre-Alpha**——动态维度 + TARDIS 门 / 传送 / 状态管理 + 外观骨骼动画已跑通，控制室仍是程序生成临时版，等待数据包结构替换。
+**Pre-Alpha**——动态维度 + TARDIS 门 / 传送 / 状态管理 + **基岩版模型渲染与骨骼动画**已跑通，控制室仍是程序生成临时版，等待数据包结构替换。
 
 ---
 
@@ -154,4 +198,5 @@ MIT
 
 - BBC 与《神秘博士》的所有创作者
 - Fabric 社区
+- Blockbench 与基岩版模型生态
 - 所有贡献者（欢迎 PR）
