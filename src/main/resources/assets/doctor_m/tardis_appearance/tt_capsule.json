@@ -2,8 +2,8 @@
   "display_name": "TT Capsule",
   "exterior": {
     "type": "bedrock",
-    "geometry":  "doctor_m:tardis/tt_capsule.geo",
-    "animation": "doctor_m:tardis/animation/tt_capsule.animation",
+    "geometry":  "doctor_m:tardis/tt_capsule/tt_capsule.geo",
+    "animation": "doctor_m:tardis/animation/tt_capsule/tt_capsule.animation",
     "texture":   "doctor_m:block/tardis/tt_capsule",
     "open":      "animation.classic.door_open",
     "close":     "animation.classic.door_close",
@@ -12,8 +12,8 @@
   },
   "interior": {
     "type": "bedrock",
-    "geometry":  "doctor_m:tardis/tt_capsule.geo",
-    "animation": "doctor_m:tardis/animation/tt_capsule.animation",
+    "geometry":  "doctor_m:tardis/tt_capsule/tt_capsule_interior.geo",
+    "animation": "doctor_m:tardis/animation/tt_capsule/tt_capsule_interior.animation",
     "texture":   "doctor_m:block/tardis/tt_capsule",
     "open":      "animation.classic.door_open",
     "close":     "animation.classic.door_close",
