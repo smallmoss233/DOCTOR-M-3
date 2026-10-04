@@ -3,12 +3,13 @@ package doctor_m.client.tardis.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
-import doctor_m.client.tardis.anim.TardisAnimCache;
-import doctor_m.client.tardis.anim.TardisAnimModel;
 import doctor_m.client.tardis.appearance.TardisAppearance;
 import doctor_m.client.tardis.appearance.TardisAppearanceRegistry;
-import doctor_m.client.tardis.appearance.TardisModelKeys;
-import doctor_m.client.tardis.appearance.TardisModelTransforms;
+import doctor_m.client.tardis.appearance.TardisAsset;
+import doctor_m.client.tardis.bedrock.BedrockAnimationModel;
+import doctor_m.client.tardis.bedrock.BedrockCache;
+import doctor_m.client.tardis.bedrock.BedrockGeometryModel;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
@@ -17,28 +18,38 @@ import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.client.resources.model.cuboid.ItemTransform;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
-import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
-import org.joml.Quaternionf;
-import org.joml.Vector3f;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+/**
+ * 门方块渲染入口。本身只负责：
+ *   1) 从 BlockEntity 状态取模型 / 动画 / 光照
+ *   2) 把 PoseStack 摆到「方块中心 + 朝向旋转 + 模型 offset/scale」
+ *   3) 交给 {@link BedrockModelRenderer} 渲染
+ *
+ * 所有几何 / UV / 骨骼逻辑都在 BedrockModelRenderer 里。
+ */
 public class TardisDoorRenderer
         implements BlockEntityRenderer<TardisDoorBlockEntity, TardisDoorRenderState> {
 
-    private static final long ANIM_DURATION_MS = 400L;
-    private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
+    /**
+     * 模型在 Blockbench 里"正面"朝向哪个方向。
+     * 一般 Blockbench 主视图正对 north，但也可以把它当作 south 面来建模。
+     * 如果发现门永远面朝反方向，把这里改成 {@link Direction#NORTH} 即可。
+     */
+    private static final Direction MODEL_FACING = Direction.NORTH;
 
-    private record AnimState(boolean lastOpen, long startMs) {}
+    private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
+    private record AnimState(boolean lastOpen, long startMs, long lastSeenMs) {}
 
     public TardisDoorRenderer(BlockEntityRendererProvider.Context ctx) {}
 
@@ -51,7 +62,8 @@ public class TardisDoorRenderer
     public void extractRenderState(TardisDoorBlockEntity be, TardisDoorRenderState state,
                                    float partialTicks, Vec3 cameraPos,
                                    ModelFeatureRenderer.CrumblingOverlay breakProgress) {
-        BlockEntityRenderer.super.extractRenderState(be, state, partialTicks, cameraPos, breakProgress);
+        BlockEntityRenderer.super.extractRenderState(
+                be, state, partialTicks, cameraPos, breakProgress);
 
         state.appearanceId = be.getAppearance();
         state.open = be.isOpen();
@@ -62,19 +74,21 @@ public class TardisDoorRenderer
             state.facing = s.getValue(AbstractTardisDoorBlock.FACING);
         }
 
-        // ---- 开关门动画进度 ----
         BlockPos pos = be.getBlockPos();
-        AnimState prev = ANIM_STATES.get(pos);
         boolean isOpen = be.isOpen();
         long now = Util.getMillis();
 
-        if (prev == null || prev.lastOpen() != isOpen) {
-            ANIM_STATES.put(pos, new AnimState(isOpen, now));
-            state.openProgress = isOpen ? 1f : 0f;
-        } else {
-            float t = Mth.clamp((now - prev.startMs()) / (float) ANIM_DURATION_MS, 0f, 1f);
-            state.openProgress = isOpen ? t : 1f - t;
+        AnimState prev = ANIM_STATES.get(pos);
+        long startMs = (prev == null || prev.lastOpen() != isOpen) ? now : prev.startMs();
+        ANIM_STATES.put(pos, new AnimState(isOpen, startMs, now));
+
+        // 惰性清理：避免传送/拆放导致 map 无限增长
+        if ((now & 0x1FFL) == 0L) {
+            ANIM_STATES.entrySet().removeIf(e -> now - e.getValue().lastSeenMs() > 10_000L);
         }
+
+        state.animElapsedSec = (now - startMs + partialTicks * 50f) / 1000f;
+        state.animTarget = isOpen;
     }
 
     @Override
@@ -86,161 +100,55 @@ public class TardisDoorRenderer
         TardisAppearance app = TardisAppearanceRegistry.get(appId);
         if (app == null) return;
 
-        Identifier closedId = state.exterior ? app.exteriorClosed() : app.interiorClosed();
-        Identifier openId   = state.exterior ? app.exteriorOpen()   : app.interiorOpen();
-        if (closedId == null || openId == null) return;
+        TardisAsset asset = state.exterior ? app.exterior() : app.interior();
+        if (!(asset instanceof TardisAsset.Bedrock b)) return;
 
-        float progress = Mth.clamp(state.openProgress, 0f, 1f);
-        float rot = 180.0F - state.facing.toYRot();
+        BedrockGeometryModel geo = BedrockCache.geometry(b.geometry());
+        if (geo == null) return;
 
-        // ---- 判断是否处于动画中 ----
-        boolean animating;
-        if (progress <= 0.001f || progress >= 0.999f) {
-            animating = false;   // 完全静止
-        } else {
-            TardisAnimModel c = TardisAnimCache.get(closedId);
-            TardisAnimModel o = TardisAnimCache.get(openId);
-            animating = c != null && o != null
-                    && (!c.groups().isEmpty() || !o.groups().isEmpty());
+        Identifier tex = b.texture() != null ? b.texture() : geo.texture();
+        if (tex == null) return;
+
+        TextureAtlas atlas = (TextureAtlas) Minecraft.getInstance()
+                .getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS);
+        TextureAtlasSprite sprite = atlas.getSprite(tex);
+
+        // 动画采样
+        String animName = state.animTarget ? b.openAnimation() : b.closeAnimation();
+        BedrockAnimationModel.Animation anim = BedrockCache.animation(b.animation(), animName);
+
+        float animTime = 0f;
+        if (anim != null) {
+            animTime = anim.loop()
+                    ? state.animElapsedSec % anim.length()
+                    : Math.min(state.animElapsedSec, anim.length());
         }
+
+        // 朝向旋转：把模型的"正面"方向转到方块的 FACING
+        float rotDeg = state.facing.toYRot() - MODEL_FACING.toYRot();
 
         poseStack.pushPose();
-        poseStack.translate(0.5, 0.0, 0.5);
+        try {
+            // 1) 移到方块中心（底面 y = 0）
+            poseStack.translate(0.5, 0.0, 0.5);
 
-        ItemTransform tf = TardisModelTransforms.get(closedId);
-        if (tf != null) {
-            poseStack.translate(tf.translation().x(), tf.translation().y(), tf.translation().z());
-            poseStack.mulPose(new Matrix4f().rotationXYZ(
-                    (float) Math.toRadians(tf.rotation().x()),
-                    (float) Math.toRadians(tf.rotation().y()),
-                    (float) Math.toRadians(tf.rotation().z())));
-            poseStack.scale(tf.scale().x(), tf.scale().y(), tf.scale().z());
+            // 2) 朝向旋转（绕方块中心 Y 轴）
+            poseStack.mulPose(new Matrix4f().rotationY((float) Math.toRadians(rotDeg)));
+
+            //poseStack.scale(-1f, 1f, 1f);
+
+            // 3) 模型局部偏移（像素 → 方块，随朝向一起转）
+            poseStack.translate(b.offsetX() / 16f, b.offsetY() / 16f, b.offsetZ() / 16f);
+
+            // 4) 像素 → 方块 + 全局缩放合并为一次
+            float sc = b.scale() / 16f;
+            poseStack.scale(sc, sc, sc);
+
+            RenderType rt = RenderTypes.cutoutMovingBlock();
+            BedrockModelRenderer.render(poseStack, collector, geo, sprite, rt,
+                    anim, animTime, state.lightCoords);
+        } finally {
+            poseStack.popPose();
         }
-
-        poseStack.mulPose(new Matrix4f().rotationY((float) Math.toRadians(rot)));
-        poseStack.translate(-0.5, 0.0, -0.5);
-
-        if (animating) {
-            submitAnimated(poseStack, collector, closedId, openId, progress, state.lightCoords);
-        } else {
-            Identifier modelId = (progress < 0.5f) ? closedId : openId;
-            submitVanilla(poseStack, collector, modelId, state.lightCoords);
-        }
-
-        poseStack.popPose();
-    }
-
-    /** 静止：走 vanilla 模型（完整功能，处理退化几何） */
-    private static void submitVanilla(PoseStack poseStack, SubmitNodeCollector collector,
-                                      Identifier modelId, int lightCoords) {
-        var mm = (net.fabricmc.fabric.api.client.model.loading.v1.FabricModelManager)
-                net.minecraft.client.Minecraft.getInstance().getModelManager();
-        net.minecraft.client.renderer.block.dispatch.BlockStateModel model =
-                mm.getModel(TardisModelKeys.of(modelId));
-        if (model == null) return;
-
-        List<net.minecraft.client.renderer.block.dispatch.BlockStateModelPart> parts =
-                new java.util.ArrayList<>();
-        model.collectParts(net.minecraft.util.RandomSource.create(0), parts);
-        if (parts.isEmpty()) return;
-
-        collector.submitBlockModel(poseStack, RenderTypes.solidMovingBlock(),
-                parts, new int[0], lightCoords, 0, 0);
-    }
-
-    /** 动画中：自定义插值渲染 */
-    private static void submitAnimated(PoseStack poseStack, SubmitNodeCollector collector,
-                                       Identifier closedId, Identifier openId,
-                                       float progress, int lightCoords) {
-        TardisAnimModel closed = TardisAnimCache.get(closedId);
-        TardisAnimModel open = TardisAnimCache.get(openId);
-        if (closed == null || open == null) return;
-
-        Identifier tex = closed.texture();
-        if (tex == null) return;
-        RenderType rt = RenderTypes.solidMovingBlock();
-
-        submitGeometry(poseStack, collector, rt, closed.staticFaces(), tex, lightCoords);
-
-        for (var entry : closed.groups().entrySet()) {
-            String name = entry.getKey();
-            TardisAnimModel.Group cg = entry.getValue();
-            TardisAnimModel.Group og = open.groups().get(name);
-            if (og == null) continue;
-
-            List<TardisAnimModel.Element> cEls = cg.elements();
-            List<TardisAnimModel.Element> oEls = og.elements();
-            if (cEls.size() != oEls.size()) continue;
-
-            for (int i = 0; i < cEls.size(); i++) {
-                TardisAnimModel.Element ce = cEls.get(i);
-                TardisAnimModel.Element oe = oEls.get(i);
-
-                Vector3f pivot = ce.pivot();
-                Vector3f tr    = new Vector3f(ce.translation()).lerp(oe.translation(), progress);
-                Vector3f sc    = new Vector3f(ce.scale()).lerp(oe.scale(), progress);
-
-                // ★ 世界增量旋转（几何已烘焙 qClosed，这里只应用增量）
-                Quaternionf qClosed = ce.rotation();
-                Quaternionf qOpen   = oe.rotation();
-                Quaternionf qDelta  = new Quaternionf(qOpen)
-                        .mul(new Quaternionf(qClosed).invert());
-                Quaternionf qT      = new Quaternionf().slerp(qDelta, progress);
-
-                poseStack.pushPose();
-
-                // 1) 绕枢轴旋转
-                poseStack.translate(pivot.x(), pivot.y(), pivot.z());
-                poseStack.mulPose(new Matrix4f().rotation(qT));
-                poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
-
-                // 2) 平移
-                poseStack.translate(tr.x(), tr.y(), tr.z());
-
-                // 3) 缩放（以枢轴为中心）
-                poseStack.translate(pivot.x(), pivot.y(), pivot.z());
-                poseStack.scale(sc.x(), sc.y(), sc.z());
-                poseStack.translate(-pivot.x(), -pivot.y(), -pivot.z());
-
-                submitGeometry(poseStack, collector, rt, ce.faces(), tex, lightCoords);
-                poseStack.popPose();
-            }
-        }
-    }
-
-    // ================================================================
-    //                      顶点提交
-    // ================================================================
-
-    private static void submitGeometry(PoseStack poseStack,
-                                       SubmitNodeCollector collector,
-                                       RenderType renderType,
-                                       List<TardisAnimModel.Face> faces,
-                                       Identifier textureId,
-                                       int lightCoords) {
-        if (faces.isEmpty()) return;
-
-        var tm = net.minecraft.client.Minecraft.getInstance().getTextureManager();
-        var atlas = (TextureAtlas) tm.getTexture(TextureAtlas.LOCATION_BLOCKS);
-        var sprite = atlas.getSprite(textureId);
-
-        float u0 = sprite.getU0();
-        float v0 = sprite.getV0();
-        float du = sprite.getU1() - u0;
-        float dv = sprite.getV1() - v0;
-
-        collector.submitCustomGeometry(poseStack, renderType, (pose, buffer) -> {
-            for (TardisAnimModel.Face f : faces) {
-                float[] p = f.positions();
-                float[] uv = f.uvs();
-
-                for (int i = 0; i < 4; i++) {
-                    buffer.addVertex(pose.pose(), p[i*3], p[i*3+1], p[i*3+2]);
-                    buffer.setColor(0xFFFFFFFF);
-                    buffer.setUv(u0 + uv[i*2] * du, v0 + uv[i*2+1] * dv);
-                    buffer.setLight(lightCoords);
-                }
-            }
-        });
     }
 }

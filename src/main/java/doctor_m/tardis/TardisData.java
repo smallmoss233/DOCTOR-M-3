@@ -18,7 +18,7 @@ public final class TardisData {
 
     /** 默认外观 ID。 */
     public static final Identifier DEFAULT_APPEARANCE =
-            Identifier.fromNamespaceAndPath("doctor_m", "classic");
+            Identifier.fromNamespaceAndPath("doctor_m", "tt_capsule");
 
     private final UUID id;
     private final UUID owner;

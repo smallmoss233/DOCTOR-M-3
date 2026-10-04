@@ -2,23 +2,16 @@ package doctor_m.client.tardis.appearance;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import net.fabricmc.fabric.api.client.model.loading.v1.ExtraModelKey;
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelLoadingPlugin;
 import net.fabricmc.fabric.api.client.model.loading.v1.PreparableModelLoadingPlugin;
-import net.minecraft.client.renderer.block.dispatch.BlockStateModel;
-import net.minecraft.client.resources.model.cuboid.ItemTransform;
-import net.minecraft.client.resources.model.cuboid.ItemTransforms;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.resources.PreparableReloadListener;
 import net.minecraft.server.packs.resources.ResourceManager;
-import net.minecraft.world.item.ItemDisplayContext;
 import org.slf4j.LoggerFactory;
 
 import java.io.Reader;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -38,38 +31,7 @@ public final class TardisAppearancePlugin
     @Override
     public void initialize(TardisAppearanceData data, ModelLoadingPlugin.Context ctx) {
         TardisAppearanceRegistry.setAll(data.appearances());
-        TardisModelTransforms.clear();
-
-        Set<Identifier> ourModelIds = new HashSet<>();
-        for (TardisAppearance app : data.appearances().values()) {
-            ourModelIds.addAll(app.allModelIds());
-        }
-
-        Set<ExtraModelKey<BlockStateModel>> registered = new HashSet<>();
-        int count = 0;
-        for (Identifier modelId : ourModelIds) {
-            if (modelId == null) continue;
-            ExtraModelKey<BlockStateModel> key = TardisModelKeys.of(modelId);
-            if (registered.add(key)) {
-                ctx.addModel(key, new TardisExtraModel(modelId));
-                count++;
-            }
-        }
-
-        // ★ 挂 Hook：模型加载时读 display.fixed
-        ctx.modifyModelOnLoad().register((model, context) -> {
-            if (ourModelIds.contains(context.id())) {
-                ItemTransforms ts = model.transforms();
-                if (ts != null) {
-                    ItemTransform fixed = ts.getTransform(ItemDisplayContext.FIXED);
-                    TardisModelTransforms.put(context.id(), fixed);
-                }
-            }
-            return model;
-        });
-
-        LOGGER.info("[TARDIS] registered {} extra model(s) for {} appearance(s)",
-                count, data.appearances().size());
+        LOGGER.info("[TARDIS] loaded {} appearance(s)", data.appearances().size());
     }
 
     private static CompletableFuture<TardisAppearanceData> load(
@@ -104,15 +66,39 @@ public final class TardisAppearancePlugin
     private static TardisAppearance parse(Identifier id, JsonObject json) {
         String display = json.has("display_name")
                 ? json.get("display_name").getAsString() : id.getPath();
-        Identifier ec = readId(json, "exterior_closed");
-        Identifier eo = readId(json, "exterior_open");
-        Identifier ic = readId(json, "interior_closed");
-        Identifier io = readId(json, "interior_open");
-        if (ec == null || eo == null || ic == null || io == null) {
-            LOGGER.warn("[TARDIS] appearance {} missing required fields", id);
+
+        TardisAsset exterior = parseBedrockAsset(json, "exterior");
+        TardisAsset interior = parseBedrockAsset(json, "interior");
+        if (exterior == null || interior == null) {
+            LOGGER.warn("[TARDIS] appearance {} missing bedrock assets", id);
             return null;
         }
-        return new TardisAppearance(id, display, ec, eo, ic, io);
+        return new TardisAppearance(id, display, exterior, interior);
+    }
+
+    private static TardisAsset parseBedrockAsset(JsonObject json, String prefix) {
+        if (!json.has(prefix) || !json.get(prefix).isJsonObject()) return null;
+        JsonObject o = json.getAsJsonObject(prefix);
+
+        Identifier geo  = readId(o, "geometry");
+        Identifier anim = readId(o, "animation");
+        Identifier tex  = readId(o, "texture");
+        if (geo == null || anim == null) return null;
+
+        String openAnim  = o.has("open")  ? o.get("open").getAsString()  : "animation.open";
+        String closeAnim = o.has("close") ? o.get("close").getAsString() : "animation.close";
+
+        float ox = 0f, oy = 0f, oz = 0f, sc = 1f;
+        if (o.has("offset")) {
+            var a = o.getAsJsonArray("offset");
+            ox = a.get(0).getAsFloat();
+            oy = a.get(1).getAsFloat();
+            oz = a.get(2).getAsFloat();
+        }
+        if (o.has("scale")) sc = o.get("scale").getAsFloat();
+
+        return new TardisAsset.Bedrock(geo, anim, tex,
+                openAnim, closeAnim, ox, oy, oz, sc);
     }
 
     private static Identifier readId(JsonObject json, String key) {

@@ -3,8 +3,8 @@ package doctor_m.client;
 import doctor_m.DMBlockEntities;
 import doctor_m.client.command.TardisClientCommand;
 import doctor_m.client.stp.StpClientState;
-import doctor_m.client.tardis.anim.TardisAnimCache;
 import doctor_m.client.tardis.appearance.TardisAppearancePlugin;
+import doctor_m.client.tardis.bedrock.BedrockCache;
 import doctor_m.client.tardis.render.TardisDoorRenderer;
 import doctor_m.stp.StpPackets;
 import mosslib.api.ClientHandlers;
@@ -16,9 +16,7 @@ public class DOCTOR_MClient implements ClientModInitializer {
 	public void onInitializeClient() {
         TardisAppearancePlugin.register();
         TardisClientCommand.register();
-        TardisAnimCache.register();
-
-        BlockEntityRenderers.register(DMBlockEntities.TARDIS_DOOR, TardisDoorRenderer::new);
+        BedrockCache.register();
 
         BlockEntityRenderers.register(DMBlockEntities.TARDIS_DOOR, TardisDoorRenderer::new);
 
