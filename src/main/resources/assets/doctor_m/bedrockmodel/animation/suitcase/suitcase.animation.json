@@ -1,0 +1,27 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"suitcase_open": {
+			"animation_length": 0.5,
+			"bones": {
+				"手提箱_上": {
+					"rotation": {
+						"0.0": [0, 0, 0],
+						"0.5": [0, 0, 107.5]
+					}
+				}
+			}
+		},
+		"suitcase_close": {
+			"animation_length": 0.5,
+			"bones": {
+				"手提箱_上": {
+					"rotation": {
+						"0.0": [0, 0, 110],
+						"0.5": [0, 0, 0]
+					}
+				}
+			}
+		}
+	}
+}
