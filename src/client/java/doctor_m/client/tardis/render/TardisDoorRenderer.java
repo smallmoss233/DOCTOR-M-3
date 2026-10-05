@@ -49,7 +49,7 @@ public class TardisDoorRenderer
     private static final Direction MODEL_FACING = Direction.NORTH;
 
     private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
-    private record AnimState(boolean lastOpen, long startMs, long lastSeenMs) {}
+    private record AnimState(boolean lastOpen, long startNs, long lastSeenMs) {}
 
     public TardisDoorRenderer(BlockEntityRendererProvider.Context ctx) {}
 
@@ -76,18 +76,18 @@ public class TardisDoorRenderer
 
         BlockPos pos = be.getBlockPos();
         boolean isOpen = be.isOpen();
-        long now = Util.getMillis();
+        long nowNs = System.nanoTime();       // ← 纳秒时钟，单调，不会倒退
+        long nowMs = Util.getMillis();        // ← 毫秒时钟，仅用于惰性清理的"最后可见时间"
 
         AnimState prev = ANIM_STATES.get(pos);
-        long startMs = (prev == null || prev.lastOpen() != isOpen) ? now : prev.startMs();
-        ANIM_STATES.put(pos, new AnimState(isOpen, startMs, now));
+        long startNs = (prev == null || prev.lastOpen() != isOpen) ? nowNs : prev.startNs();
+        ANIM_STATES.put(pos, new AnimState(isOpen, startNs, nowMs));
 
-        // 惰性清理：避免传送/拆放导致 map 无限增长
-        if ((now & 0x1FFL) == 0L) {
-            ANIM_STATES.entrySet().removeIf(e -> now - e.getValue().lastSeenMs() > 10_000L);
+        if ((nowMs & 0x1FFL) == 0L) {
+            ANIM_STATES.entrySet().removeIf(e -> nowMs - e.getValue().lastSeenMs() > 10_000L);
         }
 
-        state.animElapsedSec = (now - startMs + partialTicks * 50f) / 1000f;
+        state.animElapsedSec = (nowNs - startNs) / 1_000_000_000f;
         state.animTarget = isOpen;
     }
 
