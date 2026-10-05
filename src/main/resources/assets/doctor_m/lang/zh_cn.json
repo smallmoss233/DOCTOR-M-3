@@ -6,6 +6,7 @@
   "block.doctor_m.tardis_interior_door.not_in_tardis": "只能在塔迪斯内部放置",
   "block.doctor_m.tardis_interior_door": "塔迪斯内门",
   "block.doctor_m.tardis_exterior": "塔迪斯外部",
+  "block.doctor_m.tardis_console": "塔迪斯控制台",
 
   "doctor_m.command.error.invalid_id": "§c[DM] 无效的 UUID：§b%s",
   "doctor_m.command.tardis.create.success": "§a[DM] 已创建塔迪斯 §b%s",
@@ -24,9 +25,19 @@
   "doctor_m.command.tardis.info.exterior": "§7  外门：§b%s§7 @ §f%s§7 朝向 §f%s",
   "doctor_m.command.tardis.info.interior": "§7  内门：§f%s§7 朝向 §f%s",
   "doctor_m.command.tardis.info.spares": "§7  备用门：§f%d",
+  "doctor_m.command.tardis.info.state": "§7  状态：§f%s",
   "doctor_m.command.tardis.list.empty": "§7[DM] 没有已注册的塔迪斯",
   "doctor_m.command.tardis.list.header": "§7[DM] 塔迪斯列表（§b%s§7）：",
   "doctor_m.command.tardis.list.entry": "  §b%s§r  外门 §f%s§7@§f%s§r  备用门 %s",
+
+  "doctor_m.command.tardis.dest.set": "§a[DM] 目的地已设置：§f%s, %s, %s §7@ §f%s",
+  "doctor_m.command.tardis.dest.bad_dim": "§c[DM] 无法解析维度：§f%s",
+  "doctor_m.command.tardis.dest.dim_not_loaded": "§c[DM] 维度不存在或未加载：§f%s",
+
+  "doctor_m.command.tardis.fly.not_landed": "§c[DM] 塔迪斯当前状态为 §f%s§c，无法起飞",
+  "doctor_m.command.tardis.fly.fail": "§c[DM] 起飞失败",
+  "doctor_m.command.tardis.fly.success": "§a[DM] 塔迪斯正在起飞……",
+  "doctor_m.command.tardis.fly.success_no_dest": "§a[DM] 塔迪斯原地起飞（未设目的地）",
 
   "doctor_m.command.debug.list.empty": "§7[DM] 无动态维度",
   "doctor_m.command.debug.list.header": "§7[DM] 共 §b%d§7 个动态维度：",
@@ -43,5 +54,9 @@
 
   "doctor_m.command.client.appearance.list.empty": "[DM] 无可用外观",
   "doctor_m.command.client.appearance.list.header": "[DM] 可用外观（%s）：",
-  "doctor_m.command.client.appearance.list.entry": "  %s  %s"
+  "doctor_m.command.client.appearance.list.entry": "  %s  %s",
+
+  "message.doctor_m.tardis.already_flying": "§7[DM] 塔迪斯已在飞行中，潜行右键降落",
+  "message.doctor_m.tardis.busy": "§7[DM] 塔迪斯正在移动中",
+  "message.doctor_m.tardis.door_locked": "§7[DM] 塔迪斯飞行中，门已锁定"
 }

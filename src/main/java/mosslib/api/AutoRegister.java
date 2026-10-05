@@ -6,6 +6,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
@@ -83,6 +84,17 @@ public final class AutoRegister {
         return type;
     }
 
+    /**
+     * 创建一个带注册 id 的 SoundEvent。
+     * <p>使用 variable-range（可变距离），适合绝大多数音效。
+     */
+    public static SoundEvent sound(String modId, String id) {
+        Identifier ident = Identifier.fromNamespaceAndPath(modId, id);
+        SoundEvent event = SoundEvent.createVariableRangeEvent(ident);
+        ID_BY_OBJECT.put(event, ident);
+        return event;
+    }
+
     // ==================== 公开注册入口 ====================
 
     /** 注册类里所有 public static final Item 字段。 */
@@ -143,6 +155,12 @@ public final class AutoRegister {
     public static void blockEntities(Class<?> clazz) {
         int count = scan(clazz, BlockEntityType.class, BuiltInRegistries.BLOCK_ENTITY_TYPE);
         MossLib.LOGGER.info("[AutoRegister] {} block entities from {}", count, clazz.getSimpleName());
+    }
+
+    /** 注册类里所有 public static final SoundEvent 字段。 */
+    public static void sounds(Class<?> clazz) {
+        int count = scan(clazz, SoundEvent.class, BuiltInRegistries.SOUND_EVENT);
+        MossLib.LOGGER.info("[AutoRegister] {} sounds from {}", count, clazz.getSimpleName());
     }
 
     // ==================== 私有工具 ====================

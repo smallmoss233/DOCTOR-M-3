@@ -20,6 +20,9 @@ public final class TardisAppearancePlugin
 
     private static final org.slf4j.Logger LOGGER = LoggerFactory.getLogger("TARDIS");
 
+    /** 扫描目录：assets/doctor_m/tardis/exterior/*.json */
+    private static final String DIR = "tardis/exterior";
+
     private TardisAppearancePlugin() {}
 
     public static void register() {
@@ -40,13 +43,13 @@ public final class TardisAppearancePlugin
             ResourceManager manager = state.resourceManager();
             Map<Identifier, TardisAppearance> map = new HashMap<>();
 
-            var resources = manager.listResources("tardis_appearance",
+            var resources = manager.listResources(DIR,
                     loc -> loc.getPath().endsWith(".json"));
 
             for (var entry : resources.entrySet()) {
                 Identifier fileId = entry.getKey();
                 String path = fileId.getPath();
-                String name = path.substring("tardis_appearance/".length(),
+                String name = path.substring(DIR.length() + 1,
                         path.length() - ".json".length());
                 Identifier appearanceId = Identifier.fromNamespaceAndPath(
                         fileId.getNamespace(), name);

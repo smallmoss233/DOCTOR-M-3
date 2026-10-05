@@ -1,5 +1,6 @@
-package doctor_m;
+package doctor_m.register;
 
+import doctor_m.block.TardisConsoleBlock;
 import doctor_m.block.TardisExteriorBlock;
 import doctor_m.block.TardisInteriorDoorBlock;
 import mosslib.api.AutoRegister;
@@ -34,7 +35,18 @@ public final class DMBlocks {
             )
     );
 
+    /** 控制台：单方块，走 AutoRegister 工厂。 */
+    public static final TardisConsoleBlock TARDIS_CONSOLE = (TardisConsoleBlock)
+            AutoRegister.block("doctor_m", "tardis_console",
+                    props -> new TardisConsoleBlock(
+                            props.mapColor(MapColor.METAL)
+                                    .strength(2.0f, 6.0f)
+                                    .sound(SoundType.METAL)
+                                    .noOcclusion()
+                    )
+            );
+
     public static void register() {
-        AutoRegister.blocksWithItems(DMBlocks.class);   // 两个 @NoItem 会跳过 BlockItem
+        AutoRegister.blocksWithItems(DMBlocks.class);
     }
 }

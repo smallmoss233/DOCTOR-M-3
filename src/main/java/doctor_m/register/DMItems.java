@@ -1,4 +1,4 @@
-package doctor_m;
+package doctor_m.register;
 
 import doctor_m.item.TardisSpawnerItem;
 import mosslib.api.AutoRegister;

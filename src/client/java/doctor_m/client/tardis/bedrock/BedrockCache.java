@@ -5,6 +5,8 @@ import com.google.gson.JsonParser;
 import doctor_m.client.tardis.appearance.TardisAppearance;
 import doctor_m.client.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.client.tardis.appearance.TardisAsset;
+import doctor_m.client.tardis.console.TardisConsoleAppearance;
+import doctor_m.client.tardis.console.TardisConsoleRegistry;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.resources.Identifier;
@@ -53,9 +55,17 @@ public final class BedrockCache {
 
                         Set<Identifier> geoIds = new HashSet<>();
                         Set<Identifier> animIds = new HashSet<>();
+
+                        // 门外观
                         for (TardisAppearance app : TardisAppearanceRegistry.all().values()) {
                             collect(app.exterior(), geoIds, animIds);
                             collect(app.interior(), geoIds, animIds);
+                        }
+
+                        // 控制台外观
+                        for (TardisConsoleAppearance ca : TardisConsoleRegistry.all().values()) {
+                            if (ca.geometry()  != null) geoIds.add(ca.geometry());
+                            if (ca.animation() != null) animIds.add(ca.animation());
                         }
 
                         for (Identifier id : geoIds) {
@@ -67,7 +77,8 @@ public final class BedrockCache {
                         for (Identifier id : animIds) {
                             JsonObject json = loadJson(rm, id);
                             if (json == null) continue;
-                            Map<String, BedrockAnimationModel.Animation> parsed = BedrockParser.parseAnimations(json);
+                            Map<String, BedrockAnimationModel.Animation> parsed =
+                                    BedrockParser.parseAnimations(json);
                             ANIMATIONS.put(id, BedrockAnimationModel.mirrorX(parsed));
                         }
                     }
@@ -76,7 +87,7 @@ public final class BedrockCache {
 
     private static void collect(TardisAsset asset, Set<Identifier> geo, Set<Identifier> anim) {
         if (asset instanceof TardisAsset.Bedrock b) {
-            if (b.geometry() != null) geo.add(b.geometry());
+            if (b.geometry()  != null) geo.add(b.geometry());
             if (b.animation() != null) anim.add(b.animation());
         }
     }

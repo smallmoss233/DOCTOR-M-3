@@ -12,4 +12,6 @@ public class TardisDoorRenderState extends BlockEntityRenderState {
     public float openProgress = 0.0f;
     public float animElapsedSec;
     public boolean animTarget;
+    public float fadeAlpha = 1.0f;
+    public boolean renderThis = true;   // ← 新增
 }

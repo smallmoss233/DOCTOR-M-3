@@ -1,4 +1,4 @@
-package doctor_m;
+package doctor_m.register;
 
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;

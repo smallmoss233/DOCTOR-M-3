@@ -5,6 +5,7 @@ import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -199,6 +200,15 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
         TardisData data = findTardis(server, sl, base);
         if (data == null) return InteractionResult.PASS;
 
+        // ★ 新增：飞行期间禁止开关门
+        if (!data.state().canOpenDoors()) {
+            if (player instanceof ServerPlayer sp) {
+                sp.sendSystemMessage(Component.translatable(
+                        "message.doctor_m.tardis.door_locked"));
+            }
+            return InteractionResult.SUCCESS;
+        }
+
         boolean newOpen = !state.getValue(OPEN);
         TardisManager.setDoorOpen(server, data, newOpen);
         return InteractionResult.SUCCESS;
@@ -241,6 +251,18 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
     @Override
     public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new TardisDoorBlockEntity(pos, state);
+    }
+
+    @Override
+    public <T extends BlockEntity> net.minecraft.world.level.block.entity.BlockEntityTicker<T> getTicker(
+            Level level, BlockState state,
+            net.minecraft.world.level.block.entity.BlockEntityType<T> type) {
+        if (!level.isClientSide()) return null;
+        return (lvl, pos, st, be) -> {
+            if (be instanceof TardisDoorBlockEntity door) {
+                door.clientTick();
+            }
+        };
     }
 
     @Override

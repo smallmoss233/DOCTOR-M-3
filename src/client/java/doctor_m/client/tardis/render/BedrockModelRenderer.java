@@ -37,23 +37,7 @@ public final class BedrockModelRenderer {
     // 推导（右手系）：站在面外侧看向面，视线方向 d = -外法线；
     // 屏幕右方向 r = d × (0,1,0)；屏幕上方向 u = r × d。
     //
-    // 逐个面结果（x0/x1, y0/y1, z0/z1 为 cube 局部空间的 min/max）：
-    //
-    //   north (-Z)：r = -X，u = +Y
-    //     左上(x1,y1,z0) 左下(x1,y0,z0) 右下(x0,y0,z0) 右上(x0,y1,z0)
-    //   south (+Z)：r = +X，u = +Y
-    //     左上(x0,y1,z1) 左下(x0,y0,z1) 右下(x1,y0,z1) 右上(x1,y1,z1)
-    //   east  (+X)：r = +Z，u = +Y
-    //     左上(x1,y1,z1) 左下(x1,y0,z1) 右下(x1,y0,z0) 右上(x1,y1,z0)
-    //   west  (-X)：r = -Z，u = +Y
-    //     左上(x0,y1,z0) 左下(x0,y0,z0) 右下(x0,y0,z1) 右上(x0,y1,z1)
-    //   up    (+Y)：r = +X，u = -Z
-    //     左上(x0,y1,z0) 左下(x0,y1,z1) 右下(x1,y1,z1) 右上(x1,y1,z0)
-    //   down  (-Y)：r = +X，u = +Z
-    //     左上(x0,y0,z1) 左下(x0,y0,z0) 右下(x1,y0,z0) 右上(x1,y0,z1)
-    //
-    // 不要修改此表；如遇"朝向反了"，问题一定在别处（FACING 旋转、
-    // 模型的 origin 定义、或 cube rotation 的解析）。
+    // 不要修改此表；如遇"朝向反了"，问题一定在别处。
 
     private static final String[] FACE_NAMES = {
             "north", "south", "east", "west", "up", "down"
@@ -88,18 +72,19 @@ public final class BedrockModelRenderer {
      * @param collector 26.3 的几何体提交器
      * @param geo      几何体数据
      * @param sprite   已烘焙到方块图集的精灵
-     * @param rt       渲染类型（一般用 cutoutMovingBlock）
+     * @param rt       渲染类型
      * @param anim     当前动画（可为 null）
      * @param time     动画时间（秒）
      * @param light    光照值
+     * @param alpha    整体不透明度（0~1），1 = 不透明
      */
     public static void render(PoseStack pose, SubmitNodeCollector collector,
                               BedrockGeometryModel geo, TextureAtlasSprite sprite,
                               RenderType rt,
                               BedrockAnimationModel.Animation anim, float time,
-                              int light) {
+                              int light, float alpha) {
         for (BedrockGeometryModel.Bone root : geo.rootBones()) {
-            renderBone(pose, collector, geo, sprite, rt, anim, time, root, null, light);
+            renderBone(pose, collector, geo, sprite, rt, anim, time, root, null, light, alpha);
         }
     }
 
@@ -112,7 +97,7 @@ public final class BedrockModelRenderer {
                                    RenderType rt,
                                    BedrockAnimationModel.Animation anim, float time,
                                    BedrockGeometryModel.Bone bone,
-                                   Vector3f parentPivot, int light) {
+                                   Vector3f parentPivot, int light, float alpha) {
 
         Vector3f pivot = bone.pivot();
         Vector3f rotation = bone.rotation();
@@ -144,12 +129,12 @@ public final class BedrockModelRenderer {
 
             // 当前骨骼的 cube
             for (BedrockGeometryModel.Cube cube : bone.cubes()) {
-                renderCube(pose, collector, geo, sprite, rt, pivot, cube, light);
+                renderCube(pose, collector, geo, sprite, rt, pivot, cube, light, alpha);
             }
 
             // 子骨骼
             for (BedrockGeometryModel.Bone child : bone.children()) {
-                renderBone(pose, collector, geo, sprite, rt, anim, time, child, pivot, light);
+                renderBone(pose, collector, geo, sprite, rt, anim, time, child, pivot, light, alpha);
             }
         } finally {
             pose.popPose();
@@ -164,7 +149,7 @@ public final class BedrockModelRenderer {
                                    BedrockGeometryModel geo, TextureAtlasSprite sprite,
                                    RenderType rt,
                                    Vector3f bonePivot,
-                                   BedrockGeometryModel.Cube cube, int light) {
+                                   BedrockGeometryModel.Cube cube, int light, float alpha) {
 
         Vector3f size = cube.size();
         if (size.x() <= 0f || size.y() <= 0f || size.z() <= 0f) return;
@@ -192,9 +177,6 @@ public final class BedrockModelRenderer {
         final float dpz = cubePivot.z() - bonePivot.z();
 
         // 快照 bone 的 pose
-        // 变换链（右乘）：model * T(dp) * R(cubeRot) * v
-        //   顶点先在 cubePivot 局部空间，绕 cubePivot 旋转，
-        //   再平移到 bonePivot 相对位置，最后应用 bone 变换。
         final Matrix4f model = new Matrix4f(pose.last().pose());
         if (dpx != 0f || dpy != 0f || dpz != 0f) {
             model.translate(dpx, dpy, dpz);
@@ -218,13 +200,17 @@ public final class BedrockModelRenderer {
         final boolean mirror = cube.mirror();
         final Map<String, BedrockGeometryModel.FaceUv> faceUvs = cube.faceUvs();
 
+        // ★ 把 alpha 预计算为 ARGB 颜色（一次计算，所有顶点共用）
+        final int alphaByte = (int) (Math.max(0f, Math.min(1f, alpha)) * 255f) & 0xFF;
+        final int color = (alphaByte << 24) | 0x00FFFFFF;
+
         collector.submitCustomGeometry(pose, rt, (p, buffer) -> {
             final Vector3f tmp = new Vector3f();
             final Vector3f nrm = new Vector3f();
 
             for (int fi = 0; fi < 6; fi++) {
-                // ★ 关键：直接用同名面的 UV。不做任何 east/west 交换，
-                //   不做任何 "有没有 up/down" 的条件翻转。
+                // 直接用同名面的 UV。不做任何 east/west 交换，
+                // 不做任何 "有没有 up/down" 的条件翻转。
                 BedrockGeometryModel.FaceUv face = faceUvs.get(FACE_NAMES[fi]);
                 if (face == null) continue;
 
@@ -254,7 +240,7 @@ public final class BedrockModelRenderer {
                     float v = vMin + UV_FRAC_V[i] * (vMax - vMin);
 
                     buffer.addVertex(tmp.x(), tmp.y(), tmp.z());
-                    buffer.setColor(0xFFFFFFFF);
+                    buffer.setColor(color);   // ★ ARGB
                     buffer.setUv(su0 + u * sdu, sv0 + v * sdv);
                     buffer.setLight(light);
                     buffer.setNormal(nrm.x(), nrm.y(), nrm.z());

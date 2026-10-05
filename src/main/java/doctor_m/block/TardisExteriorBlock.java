@@ -73,9 +73,6 @@ public class TardisExteriorBlock extends AbstractTardisDoorBlock {
 
     @Override
     protected void onLowerRemoved(ServerLevel level, BlockPos pos) {
-        MinecraftServer server = level.getServer();
-        if (server == null) return;
-        TardisManager.onExteriorBroken(server, level.dimension(), pos);
     }
 
     @Override

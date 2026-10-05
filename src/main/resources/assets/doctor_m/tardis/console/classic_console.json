@@ -1,0 +1,10 @@
+{
+  "display_name": "Classic Console",
+  "geometry":     "doctor_m:bedrockmodel/console/classic_console.geo",
+  "animation":    "doctor_m:bedrockmodel/animation/console/classic_console.animation",
+  "texture":      "doctor_m:block/tardis/console/classic_console",
+  "idle":         "animation.console.idle",
+  "model_facing": "north",
+  "offset":       [0, 0, 0],
+  "scale":        1.0
+}

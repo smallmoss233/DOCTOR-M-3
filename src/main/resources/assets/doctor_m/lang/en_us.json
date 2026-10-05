@@ -6,6 +6,7 @@
   "block.doctor_m.tardis_interior_door.not_in_tardis": "Only placeable inside a TARDIS",
   "block.doctor_m.tardis_interior_door": "TARDIS Interior Door",
   "block.doctor_m.tardis_exterior": "TARDIS Exterior",
+  "block.doctor_m.tardis_console": "TARDIS Console",
 
   "doctor_m.command.error.invalid_id": "§c[DM] Invalid UUID: §b%s",
   "doctor_m.command.tardis.create.success": "§a[DM] TARDIS created: §b%s",
@@ -24,9 +25,19 @@
   "doctor_m.command.tardis.info.exterior": "§7  Exterior: §b%s§7 @ §f%s§7 facing §f%s",
   "doctor_m.command.tardis.info.interior": "§7  Interior: §f%s§7 facing §f%s",
   "doctor_m.command.tardis.info.spares": "§7  Spare doors: §f%d",
+  "doctor_m.command.tardis.info.state": "§7  State: §f%s",
   "doctor_m.command.tardis.list.empty": "§7[DM] No TARDIS registered",
   "doctor_m.command.tardis.list.header": "§7[DM] TARDIS list (§b%s§7):",
   "doctor_m.command.tardis.list.entry": "  §b%s§r  exterior §f%s§7@§f%s§r  spares %s",
+
+  "doctor_m.command.tardis.dest.set": "§a[DM] Destination set: §f%s, %s, %s §7@ §f%s",
+  "doctor_m.command.tardis.dest.bad_dim": "§c[DM] Cannot parse dimension: §f%s",
+  "doctor_m.command.tardis.dest.dim_not_loaded": "§c[DM] Dimension not found or not loaded: §f%s",
+
+  "doctor_m.command.tardis.fly.not_landed": "§c[DM] TARDIS is §f%s§c, cannot take off",
+  "doctor_m.command.tardis.fly.fail": "§c[DM] Takeoff failed",
+  "doctor_m.command.tardis.fly.success": "§a[DM] TARDIS is taking off...",
+  "doctor_m.command.tardis.fly.success_no_dest": "§a[DM] TARDIS taking off in place (no destination set)",
 
   "doctor_m.command.debug.list.empty": "§7[DM] No dynamic dimensions",
   "doctor_m.command.debug.list.header": "§7[DM] Dynamic dimensions (§b%d§7):",
@@ -43,5 +54,9 @@
 
   "doctor_m.command.client.appearance.list.empty": "[DM] No appearances available.",
   "doctor_m.command.client.appearance.list.header": "[DM] Available appearances (%s):",
-  "doctor_m.command.client.appearance.list.entry": "  %s  %s"
+  "doctor_m.command.client.appearance.list.entry": "  %s  %s",
+
+  "message.doctor_m.tardis.already_flying": "§7[DM] TARDIS is already flying. Sneak-right-click to land.",
+  "message.doctor_m.tardis.busy": "§7[DM] TARDIS is moving",
+  "message.doctor_m.tardis.door_locked": "§7[DM] TARDIS is flying, doors are locked"
 }

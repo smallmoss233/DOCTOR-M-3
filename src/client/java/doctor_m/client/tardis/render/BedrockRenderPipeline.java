@@ -100,29 +100,22 @@ public final class BedrockRenderPipeline {
                               BedrockAnimationModel.Animation anim, float animTime,
                               Direction facing, Direction modelFacing,
                               float offsetX, float offsetY, float offsetZ, float scale,
-                              int light) {
+                              int light,
+                              RenderType rt, float alpha) {
         if (ref == null) return;
 
         float rotDeg = facing.toYRot() - modelFacing.toYRot();
 
         pose.pushPose();
         try {
-            // 1) 移到方块中心（底面 y = 0）
             pose.translate(0.5, 0.0, 0.5);
-
-            // 2) 朝向旋转（绕方块中心 Y 轴）
             pose.mulPose(new Matrix4f().rotationY((float) Math.toRadians(rotDeg)));
-
-            // 3) 模型局部偏移（像素 → 方块，随朝向一起转）
             pose.translate(offsetX / 16f, offsetY / 16f, offsetZ / 16f);
-
-            // 4) 像素 → 方块 + 全局缩放合并为一次
             float sc = scale / 16f;
             pose.scale(sc, sc, sc);
 
-            RenderType rt = RenderTypes.cutoutMovingBlock();
             BedrockModelRenderer.render(pose, collector, ref.geometry(), ref.sprite(),
-                    rt, anim, animTime, light);
+                    rt, anim, animTime, light, alpha);
         } finally {
             pose.popPose();
         }

@@ -1,0 +1,17 @@
+{
+  "tardis.demat": {
+    "sounds": [
+      { "name": "doctor_m:tardis/demat", "stream": false }
+    ]
+  },
+  "tardis.mat": {
+    "sounds": [
+      { "name": "doctor_m:tardis/mat", "stream": false }
+    ]
+  },
+  "tardis.fly": {
+    "sounds": [
+      { "name": "doctor_m:tardis/fly", "stream": false }
+    ]
+  }
+}

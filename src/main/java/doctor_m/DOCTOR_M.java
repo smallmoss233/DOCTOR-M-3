@@ -1,9 +1,11 @@
 package doctor_m;
 
 import doctor_m.command.TardisCommand;
+import doctor_m.register.*;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpPackets;
 import doctor_m.stp.StpTrigger;
+import doctor_m.tardis.TardisManager;
 import mosslib.dimension.DynamicDimensionManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -33,10 +35,11 @@ public class DOCTOR_M implements ModInitializer {
         DMItems.register();
         DMCreativeTabs.register();
         DMBlockEntities.register();
+        DMSounds.register();
 
         // 生命周期
-        ServerLifecycleEvents.SERVER_STARTED.register(server ->
-                DynamicDimensionManager.loadAll(server));
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> DynamicDimensionManager.loadAll(server));
+        ServerTickEvents.END_SERVER_TICK.register(TardisManager::tickAll);
 
         // 命令
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->
