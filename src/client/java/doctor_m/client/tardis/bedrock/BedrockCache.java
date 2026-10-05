@@ -13,6 +13,8 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Reader;
 import java.util.HashSet;
@@ -22,6 +24,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class BedrockCache {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("doctor_m/bedrock");
+    private static final boolean MIRROR_X = true;   // Bedrock → Minecraft 右手系
 
     private BedrockCache() {}
 
@@ -56,13 +61,10 @@ public final class BedrockCache {
                         Set<Identifier> geoIds = new HashSet<>();
                         Set<Identifier> animIds = new HashSet<>();
 
-                        // 门外观
                         for (TardisAppearance app : TardisAppearanceRegistry.all().values()) {
                             collect(app.exterior(), geoIds, animIds);
                             collect(app.interior(), geoIds, animIds);
                         }
-
-                        // 控制台外观
                         for (TardisConsoleAppearance ca : TardisConsoleRegistry.all().values()) {
                             if (ca.geometry()  != null) geoIds.add(ca.geometry());
                             if (ca.animation() != null) animIds.add(ca.animation());
@@ -71,15 +73,15 @@ public final class BedrockCache {
                         for (Identifier id : geoIds) {
                             JsonObject json = loadJson(rm, id);
                             if (json == null) continue;
-                            BedrockGeometryModel g = BedrockParser.parseGeometry(json);
-                            if (g != null) GEOMETRY.put(id, g.mirrorX());
+                            BedrockGeometryModel g =
+                                    BedrockParser.parseGeometry(json, MIRROR_X);
+                            if (g != null) GEOMETRY.put(id, g);
                         }
                         for (Identifier id : animIds) {
                             JsonObject json = loadJson(rm, id);
                             if (json == null) continue;
-                            Map<String, BedrockAnimationModel.Animation> parsed =
-                                    BedrockParser.parseAnimations(json);
-                            ANIMATIONS.put(id, BedrockAnimationModel.mirrorX(parsed));
+                            ANIMATIONS.put(id,
+                                    BedrockParser.parseAnimations(json, MIRROR_X));
                         }
                     }
                 });
@@ -100,7 +102,7 @@ public final class BedrockCache {
         try (Reader reader = r.get().openAsReader()) {
             return JsonParser.parseReader(reader).getAsJsonObject();
         } catch (Exception e) {
-            e.printStackTrace();
+            LOGGER.warn("Failed to parse {}", file, e);
             return null;
         }
     }
