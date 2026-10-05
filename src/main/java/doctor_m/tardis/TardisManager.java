@@ -1,9 +1,9 @@
 package doctor_m.tardis;
 
-import doctor_m.register.DMBlocks;
-import doctor_m.register.DMSounds;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
+import doctor_m.register.DMBlocks;
+import doctor_m.register.DMSounds;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpServerState;
 import mosslib.dimension.DimensionTemplate;

@@ -1,6 +1,5 @@
 package doctor_m.client.tardis.console;
 
-import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
