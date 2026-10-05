@@ -1,7 +1,7 @@
 {
 	"format_version": "1.8.0",
 	"animations": {
-		"police_box.door_close": {
+		"x_police_box.door_close": {
 			"loop": "hold_on_last_frame",
 			"animation_length": 0.5,
 			"bones": {
@@ -19,7 +19,7 @@
 				}
 			}
 		},
-      "police_box.door_open": {
+      "x_police_box.door_open": {
         "loop": "hold_on_last_frame",
         "animation_length": 0.5417,
         "bones": {

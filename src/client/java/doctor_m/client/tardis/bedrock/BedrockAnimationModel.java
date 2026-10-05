@@ -35,7 +35,7 @@ public record BedrockAnimationModel(Map<String, Animation> byName) {
         List<Keyframe> out = new ArrayList<>(keys.size());
         for (Keyframe k : keys) {
             Vector3f v = k.value();
-            out.add(new Keyframe(k.time(), new Vector3f(v.x(), -v.y(), -v.z())));
+            out.add(new Keyframe(k.time(), new Vector3f(v.x(), -v.y(), v.z())));
         }
         return out;
     }

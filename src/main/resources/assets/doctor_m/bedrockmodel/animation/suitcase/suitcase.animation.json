@@ -2,7 +2,6 @@
 	"format_version": "1.8.0",
 	"animations": {
 		"suitcase_open": {
-			"loop": "hold_on_last_frame",
 			"animation_length": 0.5,
 			"bones": {
 				"手提箱_上": {
@@ -14,7 +13,6 @@
 			}
 		},
 		"suitcase_close": {
-			"loop": "hold_on_last_frame",
 			"animation_length": 0.5,
 			"bones": {
 				"手提箱_上": {
