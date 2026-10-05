@@ -1,0 +1,23 @@
+{
+  "display_name": "Police Box",
+  "exterior": {
+    "type": "bedrock",
+    "geometry":  "doctor_m:bedrockmodel/exterior/police_box/police_box.geo",
+    "animation": "doctor_m:bedrockmodel/animation/police_box/police_box.animation",
+    "texture":   "doctor_m:block/tardis/police_box",
+    "open":      "police_box.door_open",
+    "close":     "police_box.door_close",
+    "offset":    [0, 0, 0],
+    "scale":     1.0
+  },
+  "interior": {
+    "type": "bedrock",
+    "geometry":  "doctor_m:bedrockmodel/exterior/police_box/police_box_interior.geo",
+    "animation": "doctor_m:bedrockmodel/animation/police_box/police_box_interior.animation",
+    "texture":   "doctor_m:block/tardis/police_box_interior",
+    "open":      "police_box_interior.door_open",
+    "close":     "police_box_interior.door_close",
+    "offset":    [0, 0, 0],
+    "scale":     1.0
+  }
+}

@@ -1,0 +1,41 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"police_box.door_close": {
+			"loop": "hold_on_last_frame",
+			"animation_length": 0.5,
+			"bones": {
+				"左部分": {
+					"rotation": {
+						"0.0": [0, -67.5, 0],
+						"0.5": [0, 0, 0]
+					}
+				},
+				"右部分": {
+					"rotation": {
+						"0.0": [0, 67.5, 0],
+						"0.5": [0, 0, 0]
+					}
+				}
+			}
+		},
+      "police_box.door_open": {
+        "loop": "hold_on_last_frame",
+        "animation_length": 0.5417,
+        "bones": {
+          "左部分": {
+            "rotation": {
+              "0.0": [0, 0, 0],
+              "0.5": [0, -67.5, 0]
+            }
+          },
+          "右部分": {
+            "rotation": {
+              "0.0": [0, 0, 0],
+              "0.5": [0, 67.5, 0]
+            }
+          }
+        }
+      }
+    }
+}
