@@ -104,7 +104,7 @@ public final class BedrockRenderPipeline {
                               RenderType rt, float alpha) {
         if (ref == null) return;
 
-        float rotDeg = facing.toYRot() - modelFacing.toYRot();
+        float rotDeg = modelFacing.toYRot() - facing.toYRot();
 
         pose.pushPose();
         try {

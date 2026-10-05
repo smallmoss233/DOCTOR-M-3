@@ -26,7 +26,7 @@ import java.util.Map;
 public class TardisDoorRenderer
         implements BlockEntityRenderer<TardisDoorBlockEntity, TardisDoorRenderState> {
 
-    private static final Direction MODEL_FACING = Direction.SOUTH;
+    private static final Direction MODEL_FACING = Direction.NORTH;
 
     private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
     private record AnimState(boolean lastOpen, long startNs, long lastSeenMs) {}
