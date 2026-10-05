@@ -6,44 +6,32 @@ import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.client.tardis.appearance.TardisAppearance;
 import doctor_m.client.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.client.tardis.appearance.TardisAsset;
-import doctor_m.client.tardis.bedrock.BedrockAnimationModel;
-import doctor_m.client.tardis.bedrock.BedrockCache;
-import doctor_m.client.tardis.bedrock.BedrockGeometryModel;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
-import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
-import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
-import org.joml.Matrix4f;
 
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 门方块渲染入口。本身只负责：
- *   1) 从 BlockEntity 状态取模型 / 动画 / 光照
- *   2) 把 PoseStack 摆到「方块中心 + 朝向旋转 + 模型 offset/scale」
- *   3) 交给 {@link BedrockModelRenderer} 渲染
- *
- * 所有几何 / UV / 骨骼逻辑都在 BedrockModelRenderer 里。
+ * 门方块渲染入口。自己只负责：
+ *   1) 从 BlockEntity 状态取模型 ID / 动画名 / 光照 / 朝向
+ *   2) 算出当前动画时刻
+ *   3) 交给 {@link BedrockRenderPipeline} 完成解析 + 采样 + 渲染
  */
 public class TardisDoorRenderer
         implements BlockEntityRenderer<TardisDoorBlockEntity, TardisDoorRenderState> {
 
     /**
      * 模型在 Blockbench 里"正面"朝向哪个方向。
-     * 一般 Blockbench 主视图正对 north，但也可以把它当作 south 面来建模。
      * 如果发现门永远面朝反方向，把这里改成 {@link Direction#NORTH} 即可。
      */
     private static final Direction MODEL_FACING = Direction.NORTH;
@@ -76,8 +64,8 @@ public class TardisDoorRenderer
 
         BlockPos pos = be.getBlockPos();
         boolean isOpen = be.isOpen();
-        long nowNs = System.nanoTime();       // ← 纳秒时钟，单调，不会倒退
-        long nowMs = Util.getMillis();        // ← 毫秒时钟，仅用于惰性清理的"最后可见时间"
+        long nowNs = System.nanoTime();       // 纳秒时钟，单调，不会倒退
+        long nowMs = Util.getMillis();        // 毫秒时钟，仅用于惰性清理的"最后可见时间"
 
         AnimState prev = ANIM_STATES.get(pos);
         long startNs = (prev == null || prev.lastOpen() != isOpen) ? nowNs : prev.startNs();
@@ -103,52 +91,19 @@ public class TardisDoorRenderer
         TardisAsset asset = state.exterior ? app.exterior() : app.interior();
         if (!(asset instanceof TardisAsset.Bedrock b)) return;
 
-        BedrockGeometryModel geo = BedrockCache.geometry(b.geometry());
-        if (geo == null) return;
+        BedrockModelRef ref = BedrockRenderPipeline.resolve(b.geometry(), b.texture());
+        if (ref == null) return;
 
-        Identifier tex = b.texture() != null ? b.texture() : geo.texture();
-        if (tex == null) return;
-
-        TextureAtlas atlas = (TextureAtlas) Minecraft.getInstance()
-                .getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS);
-        TextureAtlasSprite sprite = atlas.getSprite(tex);
-
-        // 动画采样
+        // 动画采样：open 状态 → openAnimation，close 状态 → closeAnimation
         String animName = state.animTarget ? b.openAnimation() : b.closeAnimation();
-        BedrockAnimationModel.Animation anim = BedrockCache.animation(b.animation(), animName);
+        BedrockRenderPipeline.SampledAnim sa =
+                BedrockRenderPipeline.sample(b.animation(), animName, state.animElapsedSec);
 
-        float animTime = 0f;
-        if (anim != null) {
-            animTime = anim.loop()
-                    ? state.animElapsedSec % anim.length()
-                    : Math.min(state.animElapsedSec, anim.length());
-        }
-
-        // 朝向旋转：把模型的"正面"方向转到方块的 FACING
-        float rotDeg = state.facing.toYRot() - MODEL_FACING.toYRot();
-
-        poseStack.pushPose();
-        try {
-            // 1) 移到方块中心（底面 y = 0）
-            poseStack.translate(0.5, 0.0, 0.5);
-
-            // 2) 朝向旋转（绕方块中心 Y 轴）
-            poseStack.mulPose(new Matrix4f().rotationY((float) Math.toRadians(rotDeg)));
-
-            //poseStack.scale(-1f, 1f, 1f);
-
-            // 3) 模型局部偏移（像素 → 方块，随朝向一起转）
-            poseStack.translate(b.offsetX() / 16f, b.offsetY() / 16f, b.offsetZ() / 16f);
-
-            // 4) 像素 → 方块 + 全局缩放合并为一次
-            float sc = b.scale() / 16f;
-            poseStack.scale(sc, sc, sc);
-
-            RenderType rt = RenderTypes.cutoutMovingBlock();
-            BedrockModelRenderer.render(poseStack, collector, geo, sprite, rt,
-                    anim, animTime, state.lightCoords);
-        } finally {
-            poseStack.popPose();
-        }
+        BedrockRenderPipeline.render(
+                poseStack, collector, ref,
+                sa.anim(), sa.time(),
+                state.facing, MODEL_FACING,
+                b.offsetX(), b.offsetY(), b.offsetZ(), b.scale(),
+                state.lightCoords);
     }
 }
