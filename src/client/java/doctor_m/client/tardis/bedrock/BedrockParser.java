@@ -212,7 +212,7 @@ public final class BedrockParser {
         for (var k : keys) {
             Vector3f v = k.value();
             out.add(new BedrockAnimationModel.Keyframe(
-                    k.time(), new Vector3f(v.x, -v.y, -v.z)));
+                    k.time(), new Vector3f(v.x, -v.y, v.z)));
         }
         return out;
     }
