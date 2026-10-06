@@ -2,6 +2,7 @@
   "itemGroup.doctor_m.main": "DOCTOR M",
   "item.doctor_m.tardis_spawner": "Tardis",
   "item.doctor_m.tardis_interior_door": "Interior Door",
+  "item.doctor_m.tardis_console": "TARDIS Console",
 
   "block.doctor_m.tardis_interior_door.not_in_tardis": "Only placeable inside a TARDIS",
   "block.doctor_m.tardis_interior_door": "TARDIS Interior Door",
@@ -55,6 +56,9 @@
   "doctor_m.command.client.appearance.list.empty": "[DM] No appearances available.",
   "doctor_m.command.client.appearance.list.header": "[DM] Available appearances (%s):",
   "doctor_m.command.client.appearance.list.entry": "  %s  %s",
+  "doctor_m.command.tardis.appearance.no_target": "No TARDIS nearby.",
+  "doctor_m.command.tardis.nearby.none": "No TARDIS nearby.",
+  "doctor_m.command.tardis.appearance.opened": "Opening appearance selector: %s",
 
   "message.doctor_m.tardis.already_flying": "§7[DM] TARDIS is already flying. Sneak-right-click to land.",
   "message.doctor_m.tardis.busy": "§7[DM] TARDIS is moving",

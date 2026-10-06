@@ -1,8 +1,9 @@
 package doctor_m.client.tardis.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import doctor_m.client.tardis.bedrock.BedrockAnimationModel;
-import doctor_m.client.tardis.bedrock.BedrockGeometryModel;
+import doctor_m.tardis.bedrock.BedrockAnimationModel;
+import doctor_m.tardis.bedrock.BedrockGeometryModel;
+import doctor_m.tardis.bedrock.BedrockParser;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
@@ -18,7 +19,7 @@ import java.util.Map;
  * 通用 Bedrock 几何体渲染器。
  *
  * <p>坐标系：内部全部使用 Bedrock 原生坐标（+X 东、+Y 上、+Z 南），
- * 镜像已在 {@link doctor_m.client.tardis.bedrock.BedrockParser} 解析时完成，
+ * 镜像已在 {@link BedrockParser} 解析时完成，
  * 本类不做任何翻转 / 镜像。
  */
 public final class BedrockModelRenderer {
@@ -42,6 +43,18 @@ public final class BedrockModelRenderer {
     private static final float[][] FACE_NORMALS = {
             { 0,  0, -1}, { 0,  0,  1}, { 1,  0,  0},
             {-1,  0,  0}, { 0,  1,  0}, { 0, -1,  0},
+    };
+
+    // ★ 方向性阴影系数，顺序与 FACE_NAMES 对应。
+    //   数值就是原版 MC 的 Direction.getShade()：
+    //   UP 最亮、DOWN 最暗、E/W 比 N/S 暗一档。
+    private static final float[] FACE_SHADES = {
+            0.8f,  // north
+            0.8f,  // south
+            0.6f,  // east
+            0.6f,  // west
+            1.0f,  // up
+            0.5f,  // down
     };
 
     private static final float[] UV_FRAC_U = { 0f, 0f, 1f, 1f };
@@ -187,7 +200,6 @@ public final class BedrockModelRenderer {
         final Map<String, BedrockGeometryModel.FaceUv> faceUvs = cube.faceUvs();
 
         final int alphaByte = (int) (Math.max(0f, Math.min(1f, alpha)) * 255f) & 0xFF;
-        final int color = (alphaByte << 24) | 0x00FFFFFF;
 
         collector.submitCustomGeometry(pose, rt, (p, buffer) -> {
             Vector3f tmp = new Vector3f();
@@ -199,6 +211,14 @@ public final class BedrockModelRenderer {
 
                 // 退化面（面积 0）直接跳过：例如 Y=0 薄片的 N/S 面
                 if (isDegenerate(fi, size)) continue;
+
+                // ★ 每个面独立算颜色：方向 shade × alpha
+                float shade = FACE_SHADES[fi];
+                int rgb = (int) (255f * shade);
+                int faceColor = (alphaByte << 24)
+                        | (rgb << 16)
+                        | (rgb << 8)
+                        | rgb;
 
                 float uMin = face.u() / texW;
                 float uMax = (face.u() + face.w()) / texW;
@@ -225,7 +245,7 @@ public final class BedrockModelRenderer {
                     float v = vMin + UV_FRAC_V[i] * (vMax - vMin);
 
                     buffer.addVertex(tmp.x(), tmp.y(), tmp.z());
-                    buffer.setColor(color);
+                    buffer.setColor(faceColor);
                     buffer.setUv(su0 + u * sdu, sv0 + v * sdv);
                     buffer.setLight(light);
                     buffer.setNormal(nrm.x(), nrm.y(), nrm.z());

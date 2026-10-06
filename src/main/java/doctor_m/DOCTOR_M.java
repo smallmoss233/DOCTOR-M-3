@@ -1,6 +1,7 @@
 package doctor_m;
 
 import doctor_m.command.TardisCommand;
+import doctor_m.network.DMNetwork;
 import doctor_m.register.*;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpPackets;
@@ -36,6 +37,7 @@ public class DOCTOR_M implements ModInitializer {
         DMCreativeTabs.register();
         DMBlockEntities.register();
         DMSounds.register();
+        DMNetwork.register();
 
         // 生命周期
         ServerLifecycleEvents.SERVER_STARTED.register(server -> DynamicDimensionManager.loadAll(server));

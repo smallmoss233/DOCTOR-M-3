@@ -2,6 +2,9 @@ package doctor_m.client.tardis.appearance;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import doctor_m.tardis.appearance.TardisAppearance;
+import doctor_m.tardis.appearance.TardisAppearanceRegistry;
+import doctor_m.tardis.appearance.TardisAsset;
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelLoadingPlugin;
 import net.fabricmc.fabric.api.client.model.loading.v1.PreparableModelLoadingPlugin;
 import net.minecraft.resources.Identifier;
@@ -76,7 +79,16 @@ public final class TardisAppearancePlugin
             LOGGER.warn("[TARDIS] appearance {} missing bedrock assets", id);
             return null;
         }
-        return new TardisAppearance(id, display, exterior, interior);
+
+        boolean variant = json.has("variant") && json.get("variant").getAsBoolean();
+
+        String category = null;
+        if (json.has("category") && !json.get("category").isJsonNull()) {
+            String s = json.get("category").getAsString().trim();
+            if (!s.isEmpty()) category = s;
+        }
+
+        return new TardisAppearance(id, display, exterior, interior, variant, category);
     }
 
     private static TardisAsset parseBedrockAsset(JsonObject json, String prefix) {

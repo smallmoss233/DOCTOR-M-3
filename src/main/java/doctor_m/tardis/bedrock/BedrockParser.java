@@ -1,4 +1,4 @@
-package doctor_m.client.tardis.bedrock;
+package doctor_m.tardis.bedrock;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;

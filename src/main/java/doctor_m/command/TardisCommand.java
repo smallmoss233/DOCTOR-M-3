@@ -8,15 +8,16 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import doctor_m.block.AbstractTardisDoorBlock;
+import doctor_m.network.OpenAppearanceScreenPayload;
 import doctor_m.register.DMBlocks;
 import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.TardisState;
 import mosslib.dimension.DimensionDebug;
 import mosslib.dimension.DynamicDimensionManager;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
-import net.minecraft.commands.arguments.IdentifierArgument;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.Registries;
@@ -48,15 +49,13 @@ public final class TardisCommand {
         return builder.buildFuture();
     };
 
-    /** 补全：主世界 / 下界 / 末地 / 所有已加载维度 / 所有 TARDIS 内部维度。 */
+    /** 补全：主世界 / 下界 / 末地 / 所有 TARDIS 内部维度。 */
     private static final SuggestionProvider<CommandSourceStack> DIMENSION_IDS = (ctx, builder) -> {
         builder.suggest("overworld");
         builder.suggest("the_nether");
         builder.suggest("the_end");
 
         MinecraftServer server = ctx.getSource().getServer();
-
-        // TARDIS 内部维度（无论是否加载过，都列出来方便选）
         for (TardisData d : TardisManager.getRegistry(server).all()) {
             builder.suggest("tardis/" + d.id());
         }
@@ -74,7 +73,7 @@ public final class TardisCommand {
 
                         // ---------- tp [id] ----------
                         .then(Commands.literal("tp")
-                                .executes(TardisCommand::tpOwn)
+                                .executes(TardisCommand::tpNearby)
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests(TARDIS_IDS)
                                         .executes(TardisCommand::tpById)))
@@ -87,7 +86,7 @@ public final class TardisCommand {
 
                         // ---------- info [id] ----------
                         .then(Commands.literal("info")
-                                .executes(TardisCommand::infoOwn)
+                                .executes(TardisCommand::infoNearby)
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests(TARDIS_IDS)
                                         .executes(TardisCommand::infoById)))
@@ -99,39 +98,48 @@ public final class TardisCommand {
                         // ---------- door open|close [id] ----------
                         .then(Commands.literal("door")
                                 .then(Commands.literal("open")
-                                        .executes(ctx -> setOwnDoor(ctx, true))
+                                        .executes(ctx -> setNearbyDoor(ctx, true))
                                         .then(Commands.argument("id", StringArgumentType.word())
                                                 .suggests(TARDIS_IDS)
                                                 .executes(ctx -> setDoorById(ctx, true))))
                                 .then(Commands.literal("close")
-                                        .executes(ctx -> setOwnDoor(ctx, false))
+                                        .executes(ctx -> setNearbyDoor(ctx, false))
                                         .then(Commands.argument("id", StringArgumentType.word())
                                                 .suggests(TARDIS_IDS)
                                                 .executes(ctx -> setDoorById(ctx, false)))))
 
-                        // ---------- appearance set <id> <appearance> ----------
+                        // ---------- appearance [id] ----------
                         .then(Commands.literal("appearance")
-                                .then(Commands.literal("set")
-                                        .then(Commands.argument("id", StringArgumentType.word())
-                                                .suggests(TARDIS_IDS)
-                                                .then(Commands.argument("appearance", IdentifierArgument.id())
-                                                        .executes(TardisCommand::setAppearance)))))
+                                .executes(TardisCommand::openAppearanceNearby)
+                                .then(Commands.argument("id", StringArgumentType.word())
+                                        .suggests(TARDIS_IDS)
+                                        .executes(TardisCommand::openAppearanceById)))
 
-                        // ---------- dest <id> <x> <y> <z> [dim] ----------
+                        // ---------- dest <x> <y> <z> [dim]  （就近） ----------
+                        // ---------- dest <id> <x> <y> <z> [dim]  （指定） ----------
                         .then(Commands.literal("dest")
+                                // 就近分支：首参是数字
+                                .then(Commands.argument("x", DoubleArgumentType.doubleArg())
+                                        .then(Commands.argument("y", DoubleArgumentType.doubleArg())
+                                                .then(Commands.argument("z", DoubleArgumentType.doubleArg())
+                                                        .executes(TardisCommand::setDestNearby)
+                                                        .then(Commands.argument("dim", StringArgumentType.string())
+                                                                .suggests(DIMENSION_IDS)
+                                                                .executes(TardisCommand::setDestNearbyWithDim)))))
+                                // 指定分支：首参是 UUID（含连字符，不会匹配 double）
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests(TARDIS_IDS)
                                         .then(Commands.argument("x", DoubleArgumentType.doubleArg())
                                                 .then(Commands.argument("y", DoubleArgumentType.doubleArg())
                                                         .then(Commands.argument("z", DoubleArgumentType.doubleArg())
-                                                                .executes(TardisCommand::setDestOwn)
+                                                                .executes(TardisCommand::setDestById)
                                                                 .then(Commands.argument("dim", StringArgumentType.string())
                                                                         .suggests(DIMENSION_IDS)
-                                                                        .executes(TardisCommand::setDestWithDim)))))))
+                                                                        .executes(TardisCommand::setDestByIdWithDim)))))))
 
                         // ---------- fly [id] ----------
                         .then(Commands.literal("fly")
-                                .executes(TardisCommand::flyOwn)
+                                .executes(TardisCommand::flyNearby)
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests(TARDIS_IDS)
                                         .executes(TardisCommand::flyById)))
@@ -148,12 +156,10 @@ public final class TardisCommand {
                                 .executes(TardisCommand::reloadDims))
                         .then(Commands.literal("purge")
                                 .executes(TardisCommand::purgeAll))
-                        // ---------- createdim [id] ----------
                         .then(Commands.literal("createdim")
                                 .executes(TardisCommand::createDimRandom)
                                 .then(Commands.argument("id", StringArgumentType.greedyString())
                                         .executes(TardisCommand::createDimById)))
-                        // ---------- tpd <dim> [x y z] ----------
                         .then(Commands.literal("tpd")
                                 .then(Commands.argument("dim", StringArgumentType.string())
                                         .suggests(DIMENSION_IDS)
@@ -214,12 +220,12 @@ public final class TardisCommand {
     //                      tp
     // ================================================================
 
-    private static int tpOwn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+    private static int tpNearby(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
-        TardisData data = findOwn(source.getServer(), player.getUUID());
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
         return teleport(source, player, data);
@@ -228,14 +234,8 @@ public final class TardisCommand {
     private static int tpById(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-
-        TardisData data = TardisManager.get(source.getServer(), id);
-        if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
-            return 0;
-        }
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
         return teleport(source, player, data);
     }
 
@@ -251,19 +251,13 @@ public final class TardisCommand {
     }
 
     // ================================================================
-    //                      release（OP 删除单台）
+    //                      release
     // ================================================================
 
     private static int releaseById(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-
-        TardisData data = TardisManager.get(source.getServer(), id);
-        if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
-            return 0;
-        }
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
         return doDelete(source, data);
     }
 
@@ -280,7 +274,6 @@ public final class TardisCommand {
         return 1;
     }
 
-    /** 静默清掉外门方块。 */
     private static void clearExteriorBlock(MinecraftServer server, TardisData data) {
         if (data.exteriorDim() == null || data.exteriorPos() == null) return;
         ServerLevel level = server.getLevel(data.exteriorDim());
@@ -299,12 +292,12 @@ public final class TardisCommand {
     //                      info / list
     // ================================================================
 
-    private static int infoOwn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+    private static int infoNearby(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
-        TardisData data = findOwn(source.getServer(), player.getUUID());
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
         return showInfo(source, data);
@@ -312,13 +305,8 @@ public final class TardisCommand {
 
     private static int infoById(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-        TardisData data = TardisManager.get(source.getServer(), id);
-        if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
-            return 0;
-        }
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
         return showInfo(source, data);
     }
 
@@ -380,12 +368,13 @@ public final class TardisCommand {
     //                      door
     // ================================================================
 
-    private static int setOwnDoor(CommandContext<CommandSourceStack> ctx, boolean open) throws CommandSyntaxException {
+    private static int setNearbyDoor(CommandContext<CommandSourceStack> ctx, boolean open)
+            throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
-        TardisData data = findOwn(source.getServer(), player.getUUID());
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
         return doSetDoor(source, data, open);
@@ -393,13 +382,8 @@ public final class TardisCommand {
 
     private static int setDoorById(CommandContext<CommandSourceStack> ctx, boolean open) {
         CommandSourceStack source = ctx.getSource();
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-        TardisData data = TardisManager.get(source.getServer(), id);
-        if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
-            return 0;
-        }
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
         return doSetDoor(source, data, open);
     }
 
@@ -418,94 +402,90 @@ public final class TardisCommand {
     //                      appearance
     // ================================================================
 
-    private static int setAppearance(CommandContext<CommandSourceStack> ctx) {
+    private static int openAppearanceNearby(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
-        MinecraftServer server = source.getServer();
-
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-
-        Identifier appearance = IdentifierArgument.getId(ctx, "appearance");
-
-        TardisData data = TardisManager.get(server, id);
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable(
-                    "doctor_m.command.tardis.not_found", id.toString()));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
+        return sendOpenAppearance(source, player, data);
+    }
 
-        data.setAppearanceId(appearance);
-        TardisManager.getRegistry(server).setDirty();
-        TardisManager.syncDoorAppearance(server, data);
+    private static int openAppearanceById(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
+        return sendOpenAppearance(source, player, data);
+    }
 
-        source.sendSuccess(() -> Component.literal(
-                "§aAppearance set: §b" + appearance), false);
+    private static int sendOpenAppearance(CommandSourceStack source,
+                                          ServerPlayer player,
+                                          TardisData data) {
+        ServerPlayNetworking.send(
+                player,
+                new OpenAppearanceScreenPayload(data.id(), data.appearanceId()));
+        source.sendSuccess(
+                () -> Component.translatable(
+                        "doctor_m.command.tardis.appearance.opened",
+                        data.id().toString()),
+                false);
         return 1;
     }
 
     // ================================================================
-    //                      dest / fly
+    //                      dest
     // ================================================================
 
-    /** /doctor_m tardis dest <id> <x> <y> <z> —— 用玩家当前维度 */
-    private static int setDestOwn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+    private static int setDestNearby(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
-
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-        TardisData data = TardisManager.get(source.getServer(), id);
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
-
-        BlockPos pos = BlockPos.containing(
-                DoubleArgumentType.getDouble(ctx, "x"),
-                DoubleArgumentType.getDouble(ctx, "y"),
-                DoubleArgumentType.getDouble(ctx, "z"));
-        return doSetDest(source, data, player.level().dimension(), pos);
+        return doSetDest(source, data, player.level().dimension(), readXyz(ctx));
     }
 
-    /** /doctor_m tardis dest <id> <x> <y> <z> <dim> */
-    private static int setDestWithDim(CommandContext<CommandSourceStack> ctx) {
+    private static int setDestNearbyWithDim(CommandContext<CommandSourceStack> ctx)
+            throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
-
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-        TardisData data = TardisManager.get(source.getServer(), id);
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
+        return doSetDestWithDim(source, data, readXyz(ctx), StringArgumentType.getString(ctx, "dim"));
+    }
 
-        BlockPos pos = BlockPos.containing(
+    private static int setDestById(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
+        return doSetDest(source, data,
+                source.getLevel().dimension(),   // ← 见下方说明
+                readXyz(ctx));
+    }
+
+    private static int setDestByIdWithDim(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
+        return doSetDestWithDim(source, data, readXyz(ctx),
+                StringArgumentType.getString(ctx, "dim"));
+    }
+
+    private static BlockPos readXyz(CommandContext<CommandSourceStack> ctx) {
+        return BlockPos.containing(
                 DoubleArgumentType.getDouble(ctx, "x"),
                 DoubleArgumentType.getDouble(ctx, "y"),
                 DoubleArgumentType.getDouble(ctx, "z"));
-
-        String dimInput = StringArgumentType.getString(ctx, "dim");
-        Identifier dimId = parseDestDimInput(dimInput);
-        if (dimId == null) {
-            source.sendFailure(Component.translatable(
-                    "doctor_m.command.tardis.dest.bad_dim", dimInput));
-            return 0;
-        }
-
-        ResourceKey<Level> dimKey = ResourceKey.create(Registries.DIMENSION, dimId);
-        ServerLevel targetLevel = source.getServer().getLevel(dimKey);
-
-        // TARDIS 维度可能未加载 → 尝试创建
-        if (targetLevel == null && TardisManager.isTardisDimension(dimKey)) {
-            targetLevel = DynamicDimensionManager.getOrCreate(source.getServer(), dimKey);
-        }
-        if (targetLevel == null) {
-            source.sendFailure(Component.translatable(
-                    "doctor_m.command.tardis.dest.dim_not_loaded", dimId.toString()));
-            return 0;
-        }
-
-        return doSetDest(source, data, dimKey, pos);
     }
 
     private static int doSetDest(CommandSourceStack source, TardisData data,
@@ -519,28 +499,49 @@ public final class TardisCommand {
         return 1;
     }
 
-    /** /doctor_m tardis fly —— 自己的塔迪斯起飞 */
-    private static int flyOwn(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+    private static int doSetDestWithDim(CommandSourceStack source, TardisData data,
+                                        BlockPos pos, String dimInput) {
+        Identifier dimId = parseDestDimInput(dimInput);
+        if (dimId == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.tardis.dest.bad_dim", dimInput));
+            return 0;
+        }
+
+        ResourceKey<Level> dimKey = ResourceKey.create(Registries.DIMENSION, dimId);
+        ServerLevel targetLevel = source.getServer().getLevel(dimKey);
+
+        if (targetLevel == null && TardisManager.isTardisDimension(dimKey)) {
+            targetLevel = DynamicDimensionManager.getOrCreate(source.getServer(), dimKey);
+        }
+        if (targetLevel == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.tardis.dest.dim_not_loaded", dimId.toString()));
+            return 0;
+        }
+
+        return doSetDest(source, data, dimKey, pos);
+    }
+
+    // ================================================================
+    //                      fly
+    // ================================================================
+
+    private static int flyNearby(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
-        TardisData data = findOwn(source.getServer(), player.getUUID());
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
         if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.no_own"));
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
             return 0;
         }
         return doFly(source, data);
     }
 
-    /** /doctor_m tardis fly <id> */
     private static int flyById(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack source = ctx.getSource();
-        UUID id = parseId(source, StringArgumentType.getString(ctx, "id"));
-        if (id == null) return 0;
-        TardisData data = TardisManager.get(source.getServer(), id);
-        if (data == null) {
-            source.sendFailure(Component.translatable("doctor_m.command.tardis.not_found", id.toString()));
-            return 0;
-        }
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
         return doFly(source, data);
     }
 
@@ -633,10 +634,6 @@ public final class TardisCommand {
         return tardisCount + dimCount;
     }
 
-    // ================================================================
-    //                      debug: createdim
-    // ================================================================
-
     private static int createDimRandom(CommandContext<CommandSourceStack> ctx) {
         return createDim(ctx, UUID.randomUUID().toString());
     }
@@ -672,22 +669,19 @@ public final class TardisCommand {
         return 1;
     }
 
-    // ================================================================
-    //                      debug: tpd
-    // ================================================================
-
     private static int tpDimDefault(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
         return tpDim(ctx, 0, 100, 0);
     }
 
     private static int tpDimAt(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
-        int x = IntegerArgumentType.getInteger(ctx, "x");
-        int y = IntegerArgumentType.getInteger(ctx, "y");
-        int z = IntegerArgumentType.getInteger(ctx, "z");
-        return tpDim(ctx, x, y, z);
+        return tpDim(ctx,
+                IntegerArgumentType.getInteger(ctx, "x"),
+                IntegerArgumentType.getInteger(ctx, "y"),
+                IntegerArgumentType.getInteger(ctx, "z"));
     }
 
-    private static int tpDim(CommandContext<CommandSourceStack> ctx, int x, int y, int z) throws CommandSyntaxException {
+    private static int tpDim(CommandContext<CommandSourceStack> ctx, int x, int y, int z)
+            throws CommandSyntaxException {
         CommandSourceStack source = ctx.getSource();
         ServerPlayer player = source.getPlayerOrException();
         MinecraftServer server = source.getServer();
@@ -718,7 +712,6 @@ public final class TardisCommand {
                 player.getYRot(), player.getXRot(),
                 false);
 
-        final ServerLevel fl = level;
         source.sendSuccess(
                 () -> Component.translatable(
                         "doctor_m.command.debug.tpd.success",
@@ -731,29 +724,23 @@ public final class TardisCommand {
     //                      helpers
     // ================================================================
 
-    private static TardisData findOwn(MinecraftServer server, UUID playerId) {
-        for (TardisData d : TardisManager.getRegistry(server).all()) {
-            if (playerId.equals(d.owner())) return d;
-        }
-        return null;
-    }
-
-    private static UUID parseId(CommandSourceStack source, String raw) {
+    /** 解析 UUID 字符串 → TardisData；失败时已发失败消息，直接返回 null。 */
+    private static TardisData resolveById(CommandSourceStack source, String raw) {
+        UUID id;
         try {
-            return UUID.fromString(raw);
+            id = UUID.fromString(raw);
         } catch (IllegalArgumentException e) {
             source.sendFailure(Component.translatable("doctor_m.command.error.invalid_id", raw));
             return null;
         }
+        TardisData data = TardisManager.get(source.getServer(), id);
+        if (data == null) {
+            source.sendFailure(Component.translatable(
+                    "doctor_m.command.tardis.not_found", id.toString()));
+        }
+        return data;
     }
 
-    /**
-     * 解析 debug 命令的维度输入（专门给 TARDIS 内部维度用）。
-     * <ul>
-     *   <li>含 ":"  → 完整 ID</li>
-     *   <li>不含 ":" → 补 {@code doctor_m:tardis/} 前缀</li>
-     * </ul>
-     */
     private static Identifier parseDimInput(String input) {
         try {
             if (input.contains(":")) {
@@ -765,14 +752,6 @@ public final class TardisCommand {
         }
     }
 
-    /**
-     * 解析 dest 命令的维度输入。比 debug 版本宽松，支持原版维度别名。
-     * <ul>
-     *   <li>{@code overworld} / {@code the_nether} / {@code the_end} → 原版维度</li>
-     *   <li>含 ":"  → 完整 ID</li>
-     *   <li>其它  → 补 {@code doctor_m:tardis/} 前缀</li>
-     * </ul>
-     */
     private static Identifier parseDestDimInput(String input) {
         try {
             if ("overworld".equals(input)) return Identifier.withDefaultNamespace("overworld");

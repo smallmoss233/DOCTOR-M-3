@@ -30,6 +30,8 @@ public final class TardisData {
     private Direction interiorFacing;
     private Identifier appearanceId;
     private final List<BlockPos> spareDoors = new ArrayList<>();
+    private Identifier exteriorCollisionGeometry = null;
+    private Identifier interiorCollisionGeometry = null;
 
     // ============================================================
     //              新增：状态系统字段
@@ -105,6 +107,12 @@ public final class TardisData {
             BlockPos.CODEC.listOf().optionalFieldOf("spare_doors", List.of())
                     .forGetter(TardisData::spareDoors),
 
+            // ---- 碰撞几何体 ----
+            Identifier.CODEC.optionalFieldOf("exterior_collision_geometry")
+                    .forGetter(d -> Optional.ofNullable(d.exteriorCollisionGeometry)),
+            Identifier.CODEC.optionalFieldOf("interior_collision_geometry")
+                    .forGetter(d -> Optional.ofNullable(d.interiorCollisionGeometry)),
+
             // ---- 状态系统 ----
             TardisState.CODEC.optionalFieldOf("state", TardisState.LANDED)
                     .forGetter(TardisData::state),
@@ -115,8 +123,11 @@ public final class TardisData {
             BlockPos.CODEC.optionalFieldOf("target_pos")
                     .forGetter(d -> Optional.ofNullable(d.targetPos))
     ).apply(inst, (id, owner, ed, ep, ef, ip, inf, app, spares,
+                   ecg, icg,
                    state, ticks, tdim, tpos) -> {
         TardisData d = new TardisData(id, owner, ed, ep, ef, ip, inf, app, spares);
+        d.exteriorCollisionGeometry = ecg.orElse(null);
+        d.interiorCollisionGeometry = icg.orElse(null);
         d.state = state == null ? TardisState.LANDED : state;
         d.stateTicks = ticks;
         d.targetDim = tdim.orElse(null);
@@ -137,6 +148,8 @@ public final class TardisData {
     public Direction interiorFacing()       { return interiorFacing; }
     public Identifier appearanceId()        { return appearanceId; }
     public List<BlockPos> spareDoors()      { return List.copyOf(spareDoors); }
+    public Identifier exteriorCollisionGeometry() { return exteriorCollisionGeometry; }
+    public Identifier interiorCollisionGeometry() { return interiorCollisionGeometry; }
 
     // ============================================================
     //                      现有 setter
@@ -158,6 +171,12 @@ public final class TardisData {
     public boolean removeSpareDoor(BlockPos pos) { return spareDoors.remove(pos); }
     public BlockPos popSpareDoor() {
         return spareDoors.isEmpty() ? null : spareDoors.remove(0);
+    }
+    public void setExteriorCollisionGeometry(Identifier id) {
+        this.exteriorCollisionGeometry = id;
+    }
+    public void setInteriorCollisionGeometry(Identifier id) {
+        this.interiorCollisionGeometry = id;
     }
 
     // ============================================================

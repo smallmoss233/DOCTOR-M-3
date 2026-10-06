@@ -1,5 +1,6 @@
 package doctor_m.client.tardis.appearance;
 
+import doctor_m.tardis.appearance.TardisAppearance;
 import net.minecraft.resources.Identifier;
 
 import java.util.Map;

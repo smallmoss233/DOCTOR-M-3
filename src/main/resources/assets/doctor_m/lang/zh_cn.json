@@ -2,6 +2,7 @@
   "itemGroup.doctor_m.main": "DOCTOR M",
   "item.doctor_m.tardis_spawner": "塔迪斯",
   "item.doctor_m.tardis_interior_door": "内门",
+  "item.doctor_m.tardis_console": "塔迪斯控制台",
 
   "block.doctor_m.tardis_interior_door.not_in_tardis": "只能在塔迪斯内部放置",
   "block.doctor_m.tardis_interior_door": "塔迪斯内门",
@@ -55,6 +56,9 @@
   "doctor_m.command.client.appearance.list.empty": "[DM] 无可用外观",
   "doctor_m.command.client.appearance.list.header": "[DM] 可用外观（%s）：",
   "doctor_m.command.client.appearance.list.entry": "  %s  %s",
+  "doctor_m.command.tardis.appearance.no_target": "附近没有 TARDIS。",
+  "doctor_m.command.tardis.nearby.none": "附近没有 TARDIS。",
+  "doctor_m.command.tardis.appearance.opened": "打开外观选择：%s",
 
   "message.doctor_m.tardis.already_flying": "§7[DM] 塔迪斯已在飞行中，潜行右键降落",
   "message.doctor_m.tardis.busy": "§7[DM] 塔迪斯正在移动中",

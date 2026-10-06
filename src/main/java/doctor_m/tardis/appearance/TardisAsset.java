@@ -1,4 +1,4 @@
-package doctor_m.client.tardis.appearance;
+package doctor_m.tardis.appearance;
 
 import net.minecraft.resources.Identifier;
 

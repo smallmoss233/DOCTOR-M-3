@@ -121,6 +121,45 @@ public final class TardisManager {
         return tardisIdFromDimension(dim) != null;
     }
 
+    /**
+     * 找玩家"当前对应"的 TARDIS：
+     * <ol>
+     *   <li>玩家在某个 TARDIS 内部维度 → 那台</li>
+     *   <li>否则在他所处维度里找 16 格内最近的外门</li>
+     *   <li>都没有 → null</li>
+     * </ol>
+     */
+    public static TardisData findContextTardis(MinecraftServer server, ServerPlayer player) {
+        // 1. 在 TARDIS 内部？
+        UUID interiorId = tardisIdFromDimension(player.level().dimension());
+        if (interiorId != null) {
+            return get(server, interiorId);
+        }
+
+        // 2. 找最近的外门
+        TardisData nearest = null;
+        double bestDistSq = 16.0 * 16.0;
+        double px = player.getX();
+        double py = player.getY();
+        double pz = player.getZ();
+
+        for (TardisData d : getRegistry(server).all()) {
+            if (!player.level().dimension().equals(d.exteriorDim())) continue;
+
+            BlockPos dp = d.exteriorPos();
+            double dx = px - (dp.getX() + 0.5);
+            double dy = py - (dp.getY() + 0.5);
+            double dz = pz - (dp.getZ() + 0.5);
+            double distSq = dx * dx + dy * dy + dz * dz;
+
+            if (distSq < bestDistSq) {
+                bestDistSq = distSq;
+                nearest = d;
+            }
+        }
+        return nearest;
+    }
+
     // ================================================================
     //                      创建 / 恢复
     // ================================================================
