@@ -22,6 +22,10 @@ public class TardisInteriorDoorBlock extends AbstractTardisDoorBlock {
         super(props);
     }
 
+    // 内门不再覆盖门平面位置：实测两个门的模型在方块内落在同一侧
+    // （内门几何体的根骨骼带 rotation:[0,180,0]，已经把门摆到与外门一致的位置），
+    // 因此碰撞板用基类的同一个平面即可。详见 AbstractTardisDoorBlock#doorPlanePixels。
+
     @Override
     protected TardisData findTardis(MinecraftServer server, ServerLevel level, BlockPos pos) {
         // findByInterior 只匹配真门位置，备用门返回 null → 不响应右键

@@ -5,6 +5,12 @@ build/
 out/
 classes/
 
+# gradle 缓存副本（历史遗留，不应进版本库）
+gra/
+
+# 基岩模型验证工具的编译产物
+tools/bedrock-verify/out/
+
 # eclipse
 
 *.launch

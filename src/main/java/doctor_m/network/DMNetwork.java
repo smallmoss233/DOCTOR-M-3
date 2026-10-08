@@ -2,7 +2,7 @@ package doctor_m.network;
 
 import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
-import doctor_m.tardis.bedrock.BedrockCache;
+import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import mosslib.api.PayloadRegistrar;
 import mosslib.api.ServerHandlers;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -45,13 +45,16 @@ public final class DMNetwork {
         boolean isOp = player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
         if (!isOwner && !isOp) return;
 
-        data.setAppearanceId(p.appearanceId());
-        data.setExteriorCollisionGeometry(p.exteriorGeometry().orElse(null));
-        data.setInteriorCollisionGeometry(p.interiorGeometry().orElse(null));
-        TardisManager.getRegistry(server).setDirty();
+        // 外观注册表是客户端资源包内容，服务端并非总有一份（专用服务器上可能为空）。
+        // 若服务端知道这个 ID 就校验一次，避免把不存在的 ID 写进存档；
+        // 不知道则放行 —— 渲染只发生在客户端，服务端不需要该资源。
+        if (!TardisAppearanceRegistry.all().isEmpty()
+                && TardisAppearanceRegistry.get(p.appearanceId()) == null) {
+            return;
+        }
 
-        p.exteriorGeometry().ifPresent(id -> BedrockCache.ensureServerGeometryLoaded(server, id));
-        p.interiorGeometry().ifPresent(id -> BedrockCache.ensureServerGeometryLoaded(server, id));
+        data.setAppearanceId(p.appearanceId());
+        TardisManager.getRegistry(server).setDirty();
 
         TardisManager.syncDoorAppearance(server, data);
     }

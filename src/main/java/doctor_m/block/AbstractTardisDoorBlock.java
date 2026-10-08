@@ -57,17 +57,94 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
     //                      形状
     // ================================================================
 
-    private static final VoxelShape SHAPE_NORTH = Block.box(0, 0, 14, 16, 16, 16);
-    private static final VoxelShape SHAPE_SOUTH = Block.box(0, 0, 0, 16, 16, 2);
-    private static final VoxelShape SHAPE_EAST  = Block.box(0, 0, 0, 2, 16, 16);
-    private static final VoxelShape SHAPE_WEST  = Block.box(14, 0, 0, 16, 16, 16);
+    /**
+     * 门的碰撞板在方块内的横向占位（像素）。
+     *
+     * <p>门宽 16 像素，两侧各留 {@code SIDE} 像素不参与碰撞 —— 这决定玩家能沿着
+     * 门的边缘走到哪。取 3 时玩家（宽 0.6 格 ≈ 9.6 像素）可以贴着门框走过而不被卡住。
+     */
+    protected static final int SIDE = 3;
 
-    protected static VoxelShape shapeFor(Direction facing) {
+    /**
+     * 门平面在方块内的像素位置（0..16），即碰撞板的中心。
+     *
+     * <p><b>这是碰撞形状与传送触发判定的共同锚点</b>：碰撞板以它为中心，
+     * 穿越判定以它为零点。两者必须一致，否则会出现"还没走到门板就传送"
+     * 或"穿模了才触发"的偏移。
+     *
+     * <h2>取值依据（实测，不是推导）</h2>
+     * 用 {@code tools/door-sim/AlignCheck} 以真实解析器算出各模型在渲染空间里的
+     * 包围盒中心（相对方块中心，单位格）：
+     *
+     * <pre>
+     *   police_box   外门  X +0.005  Z +0.013
+     *   blue_box     外门  X -0.002  Z +0.022
+     *   x_police_box 外门  X +0.006  Z -0.002
+     *   blue_box     内门  X +0.031  Z +0.594
+     *   x_police_box 内门  X -0.006  Z +0.687
+     * </pre>
+     *
+     * <p><b>内门的模型在 Z 上比外门偏了约 +0.6 格</b>（内门几何体的根骨骼带
+     * {@code rotation: [0,180,0]}，建模原点与外门不同）。因此两者必须用
+     * <b>同一个平面位置</b> 11（板 6..16，中心 0.6875）才能同时贴合各自的模型。
+     *
+     * <p>曾经的错误：给内门用了镜像的平面位置 5（板 0..10，中心 0.3125），
+     * 结果碰撞板比模型多深入房间 0.375 格 —— 表现为"碰撞箱离模型更远、往房间内侧偏"。
+     */
+    protected final int doorPlanePixels() {
+        return 11;
+    }
+
+    /**
+     * 碰撞板的厚度（像素）。
+     *
+     * <p>这是"像不像一块门板"的关键。旧值是 10 像素（0.625 格），厚得像一堵墙，
+     * 玩家会明显感觉自己撞在体积上而不是门上 —— 观感上就是"这不是门"。
+     *
+     * <p>取 2 像素（0.125 格）与现实中门板的厚度量级一致，且<t>必须让板跨越门平面</t>：
+     * {@code entityInside} 只在玩家包围盒真正碰到碰撞板时才会被调用，
+     * 板若整块位于平面一侧，触发就会整体偏到那一侧去。
+     * 2 像素的板以平面 11 为中心 → 覆盖 10..12（z=0.6250..0.7500），
+     * 门平面 0.6875 恰好落在其中央。
+     */
+    protected int collisionThickness() {
+        return 2;
+    }
+
+    /**
+     * 触发传送所需的"越过门平面"距离（格）。
+     *
+     * <p>0 = 玩家身体中心正好到达门平面时传送。这是手感的主要调节点：
+     * <ul>
+     *   <li>调大 → 更早触发，几乎看不到门（穿模最少，但"还没走过去"的感觉更强）；</li>
+     *   <li>调小或为负 → 更晚触发，会看到自己半个身子插进门里。</li>
+     * </ul>
+     * 默认取 0（中心到达平面即传送），对应"走到门口就走过去了"的手感。
+     */
+    protected static final double CROSS_THRESHOLD = 0.0;
+
+    /**
+     * 构造本门型的碰撞形状：以门平面为中心、厚度
+     * {@link #collisionThickness()} 的竖板，横向留出 {@link #SIDE}。
+     *
+     * <p>形状随 {@code FACING} 与 {@link #doorPlaneOnOuterSide()} 计算得出，
+     * 不再每种朝向手写一份常量 —— 旧版那四份手写常量正是"内外门形状不一致"
+     * 这类问题容易藏身的地方。
+     */
+    protected VoxelShape shapeFor(Direction facing) {
+        int half = Math.max(1, collisionThickness() / 2);
+        int center = doorPlanePixels();
+        int lo = Math.max(0, center - half);
+        int hi = Math.min(16, center + half);
+        int min = SIDE;
+        int max = 16 - SIDE;
+
         return switch (facing) {
-            case NORTH -> SHAPE_NORTH;
-            case SOUTH -> SHAPE_SOUTH;
-            case EAST  -> SHAPE_EAST;
-            case WEST  -> SHAPE_WEST;
+            // 板在方块内 z=[lo,hi] 区间；随 FACING 旋转到对应朝向。
+            case NORTH -> Block.box(min, 0, lo, max, 16, hi);
+            case SOUTH -> Block.box(min, 0, 16 - hi, max, 16, 16 - lo);
+            case EAST  -> Block.box(16 - hi, 0, min, 16 - lo, 16, max);
+            case WEST  -> Block.box(lo, 0, min, hi, 16, max);
             default    -> Shapes.block();
         };
     }
@@ -171,16 +248,50 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
         if (state.getValue(HALF) != DoubleBlockHalf.LOWER) return;
         if (!state.getValue(OPEN)) return;
 
-        // ★ 用玩家相对门中心的位置判断：正面 / 侧面都允许，只有背面拒绝
-        Direction facing = state.getValue(FACING);
-        double dx = player.getX() - (pos.getX() + 0.5);
-        double dz = player.getZ() - (pos.getZ() + 0.5);
-        double dot = dx * facing.getStepX() + dz * facing.getStepZ();
-
-        // 阈值 -0.3：给侧面和边界一点宽容，只拒绝明确从背面撞的
-        if (dot < -0.3) return;
+        // ★ 必须真正"走过门平面"才触发。
+        //
+        // 旧版用 dot < -0.3 判断"不是从背面撞进来的"，只要玩家身体与门的碰撞箱有
+        // 任何重叠就触发 —— 而内门当时用的是基类那块贴边 2 像素的薄板，
+        // 结果人在门内侧还没迈出门就传走了。
+        //
+        // 现在以门平面为零点判断玩家中心是否越过它。配合让碰撞板跨越门平面，
+        // entityInside 恰好在玩家接近平面时被调用，于是触发时机与门板位置一致。
+        if (!hasCrossedDoorPlane(state, pos, player)) return;
 
         handlePassThrough(player, (ServerLevel) level, pos);
+    }
+
+    /**
+     * 玩家是否已经越过门平面。
+     *
+     * <p>门平面垂直于 {@code FACING}，位于方块内 {@link #doorPlanePixels()} 处。
+     * 玩家在平面两侧的符号相反：从"门背后"走向"门正面"时，带符号距离由负转正。
+     *
+     * <p><b>平面在哪一侧由 {@link #doorPlaneOnOuterSide()} 决定</b>，
+     * 与外门的几何镜像关系由此保持一致 —— 之前内外门共用同一个平面位置，
+     * 导致其中一边的符号整体反号（走过去不传送、退回来反而传送）。
+     *
+     * <p>另外要求玩家在水平面上确实位于门洞范围内，避免沿着门侧面走过时被误判。
+     */
+    protected boolean hasCrossedDoorPlane(BlockState state, BlockPos pos, ServerPlayer player) {
+        Direction facing = state.getValue(FACING);
+
+        double relX = player.getX() - (pos.getX() + 0.5);
+        double relZ = player.getZ() - (pos.getZ() + 0.5);
+
+        // 沿 FACING 的带符号距离，减去"平面相对方块中心的偏移"（换算成格）。
+        // 平面越靠近 FACING 那一侧，偏移越正，玩家要更靠外才算越过。
+        double planeOffset = (doorPlanePixels() - 8) / 16.0;
+        double along = relX * facing.getStepX() + relZ * facing.getStepZ() - planeOffset;
+
+        if (along < CROSS_THRESHOLD) return false;
+
+        // 横向限制：沿门的宽度方向不能跑出门框
+        double lateral = Math.abs(relX * facing.getStepZ() - relZ * facing.getStepX());
+        if (lateral > 0.5) return false;
+
+        // 法向限制：不能离门太远（防止斜向擦过时误判）
+        return along <= 0.5 + CROSS_THRESHOLD;
     }
 
     // ================================================================

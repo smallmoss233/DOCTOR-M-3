@@ -1,6 +1,7 @@
 package doctor_m.client.gui;
 
 import doctor_m.client.gui.pip.GuiBedrockModelRenderState;
+import doctor_m.client.tardis.render.BedrockCache;
 import doctor_m.client.tardis.render.BedrockModelRef;
 import doctor_m.client.tardis.render.BedrockRenderPipeline;
 import doctor_m.network.SetTardisAppearancePayload;
@@ -16,6 +17,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Player;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
@@ -23,6 +26,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class TardisAppearanceScreen extends Screen {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("TARDIS");
 
     // ===== 布局常量 =====
     private static final int PANEL_W        = 440;
@@ -160,13 +165,15 @@ public class TardisAppearanceScreen extends Screen {
         TardisAppearance app = TardisAppearanceRegistry.get(previewingId);
         if (app == null) return;
 
-        Optional<Identifier> extGeo = Optional.empty();
-        Optional<Identifier> intGeo = Optional.empty();
-        if (app.exterior() instanceof TardisAsset.Bedrock b) extGeo = Optional.ofNullable(b.geometry());
-        if (app.interior() instanceof TardisAsset.Bedrock b) intGeo = Optional.ofNullable(b.geometry());
+        // 先把这套外观引用的几何 / 动画读进缓存，问题在开发者日志里立刻可见，
+        // 而不是等到穿门时才发现模型是空的。
+        List<String> problems = BedrockCache.warmUp(previewingId);
+        if (!problems.isEmpty()) {
+            LOGGER.warn("[TARDIS] appearance {} applied with asset problems: {}",
+                    previewingId, String.join("; ", problems));
+        }
 
-        ClientPlayNetworking.send(new SetTardisAppearancePayload(
-                tardisId, previewingId, extGeo, intGeo));
+        ClientPlayNetworking.send(new SetTardisAppearancePayload(tardisId, previewingId));
         onClose();
     }
 

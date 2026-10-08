@@ -15,6 +15,7 @@ import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.TardisState;
 import mosslib.dimension.DimensionDebug;
 import mosslib.dimension.DynamicDimensionManager;
+import mosslib.util.Text;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -330,7 +331,7 @@ public final class TardisCommand {
                         data.interiorFacing().getName()),
                 false);
         source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.tardis.info.spares",
+                () -> Text.tr("doctor_m.command.tardis.info.spares",
                         data.spareDoors().size()),
                 false);
         source.sendSuccess(
@@ -351,7 +352,7 @@ public final class TardisCommand {
         }
         int count = all.size();
         source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.tardis.list.header", count), false);
+                () -> Text.tr("doctor_m.command.tardis.list.header", count), false);
         for (TardisData d : all) {
             source.sendSuccess(
                     () -> Component.translatable("doctor_m.command.tardis.list.entry",
@@ -492,7 +493,7 @@ public final class TardisCommand {
                                  ResourceKey<Level> dim, BlockPos pos) {
         TardisManager.setDestination(source.getServer(), data, dim, pos);
         source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.tardis.dest.set",
+                () -> Text.tr("doctor_m.command.tardis.dest.set",
                         pos.getX(), pos.getY(), pos.getZ(),
                         dim.identifier().toString()),
                 true);
@@ -581,10 +582,10 @@ public final class TardisCommand {
             return 0;
         }
         ctx.getSource().sendSuccess(
-                () -> Component.translatable("doctor_m.command.debug.list.header", list.size()), false);
+                () -> Text.tr("doctor_m.command.debug.list.header", list.size()), false);
         for (var snap : list) {
             ctx.getSource().sendSuccess(
-                    () -> Component.translatable("doctor_m.command.debug.list.entry",
+                    () -> Text.tr("doctor_m.command.debug.list.entry",
                             snap.key().identifier(), snap.playerCount(), snap.entityCount(),
                             snap.loadedChunks(), snap.pathExists() ? "§a✓" : "§c✗",
                             DimensionDebug.formatSize(snap.pathSizeBytes())),
@@ -629,7 +630,7 @@ public final class TardisCommand {
         final int ft = tardisCount;
         final int fd = dimCount;
         source.sendSuccess(
-                () -> Component.translatable("doctor_m.command.debug.purge.success", ft, fd),
+                () -> Text.tr("doctor_m.command.debug.purge.success", ft, fd),
                 true);
         return tardisCount + dimCount;
     }
@@ -713,7 +714,7 @@ public final class TardisCommand {
                 false);
 
         source.sendSuccess(
-                () -> Component.translatable(
+                () -> Text.tr(
                         "doctor_m.command.debug.tpd.success",
                         dimId.toString(), x, y, z),
                 false);

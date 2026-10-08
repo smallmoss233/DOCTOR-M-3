@@ -69,6 +69,14 @@ public final class TardisConsoleLoader {
         Identifier animation = readId(json, "animation");
         Identifier texture   = readId(json, "texture");
 
+        // cube 欧拉角定序：按模型指定，避免全局切换把其他模型一起改坏。
+        // Blockbench 手工拖出来的自由旋转对定序极敏感，而不同时期导出的模型
+        // 可能用不同定序，所以它必须是 per-model 的。
+        doctor_m.client.tardis.render.BedrockCache.setGeometryRotationOrder(
+                geometry,
+                doctor_m.tardis.bedrock.BedrockRenderMath.parseOrder(
+                        readString(json, "rotation_order"), null));
+
         String displayName = json.has("display_name")
                 ? json.get("display_name").getAsString() : id.getPath();
 
@@ -104,5 +112,15 @@ public final class TardisConsoleLoader {
     private static Identifier readId(JsonObject json, String key) {
         if (!json.has(key) || json.get(key).isJsonNull()) return null;
         return Identifier.tryParse(json.get(key).getAsString());
+    }
+
+    /** 容错读字符串；不存在或类型不对时返回 null。 */
+    private static String readString(JsonObject json, String key) {
+        if (!json.has(key) || json.get(key).isJsonNull()) return null;
+        try {
+            return json.get(key).getAsString();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 }

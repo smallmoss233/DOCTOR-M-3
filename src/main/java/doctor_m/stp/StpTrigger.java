@@ -20,6 +20,10 @@ public final class StpTrigger {
     private static final Set<UUID> WORLD_PRELOADED = new HashSet<>();
 
     public static void tick(MinecraftServer server) {
+        // 区块滴灌必须每 tick 跑，不能跟着 CHECK_INTERVAL 跳 ——
+        // 它才是"把预加载摊到多帧"的执行者。
+        StpChunkPump.tick(server);
+
         if (server.getTickCount() % StpConfig.CHECK_INTERVAL != 0) return;
 
         Collection<TardisData> all = TardisManager.getRegistry(server).all();
@@ -46,11 +50,16 @@ public final class StpTrigger {
                                 data.exteriorPos().getZ());
                     }
                 } else {
-                    WORLD_PRELOADED.remove(playerId);
+                    if (WORLD_PRELOADED.remove(playerId)) {
+                        // 玩家离开了内门附近：把没发完的队列丢掉，避免继续占用带宽。
+                        StpChunkPump.clear(playerId);
+                    }
                 }
             } else {
                 // 玩家在主世界：检测靠近外门 → 预加载 TARDIS
-                WORLD_PRELOADED.remove(playerId);
+                if (WORLD_PRELOADED.remove(playerId)) {
+                    StpChunkPump.clear(playerId);
+                }
 
                 Set<UUID> preloaded = StpServerState.getPreloaded(playerId);
                 for (TardisData data : all) {

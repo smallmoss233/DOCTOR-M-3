@@ -3,8 +3,10 @@ package doctor_m;
 import doctor_m.command.TardisCommand;
 import doctor_m.network.DMNetwork;
 import doctor_m.register.*;
+import doctor_m.stp.StpChunkPump;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpPackets;
+import doctor_m.stp.StpServerState;
 import doctor_m.stp.StpTrigger;
 import doctor_m.tardis.TardisManager;
 import mosslib.dimension.DynamicDimensionManager;
@@ -12,6 +14,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
@@ -49,6 +52,13 @@ public class DOCTOR_M implements ModInitializer {
 
         StpPackets.register();
         ServerTickEvents.END_SERVER_TICK.register(StpTrigger::tick);
+
+        // 玩家断线：丢弃尚未发完的区块队列，否则会一直对空连接发包
+        ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+            var id = handler.getPlayer().getUUID();
+            StpChunkPump.onPlayerDisconnect(id);
+            StpServerState.clearPlayer(id);
+        });
 
         // C2S 区块请求
         ServerPlayNetworking.registerGlobalReceiver(

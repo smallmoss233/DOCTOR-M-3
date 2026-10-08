@@ -239,10 +239,6 @@ public final class TardisManager {
     //                      删除
     // ================================================================
 
-    public static void onExteriorBroken(MinecraftServer server, ResourceKey<Level> dim, BlockPos pos) {
-        // 已废弃：外门被破坏不删 TARDIS
-    }
-
     public static void delete(MinecraftServer server, UUID id) {
         getRegistry(server).remove(id);
         StpServerState.clearTardis(id);
