@@ -27,15 +27,18 @@ public record BedrockAxes(boolean mirrorGeometry, boolean mirrorAnimation,
                           BedrockRenderMath.EulerOrder cubeOrder) {
 
     /**
-     * 当前生产定式：几何镜像、动画翻转，定序 {@code ZYX}。
-     * 与旧版行为逐位一致。
+     * 当前生产定式：几何镜像、动画翻转，定序 {@code XYZ}。
+     *
+     * <p>定序与 {@link BedrockRenderMath#cubeOrder()} 的默认值保持一致 ——
+     * 骨骼和立方体必须用同一套定序，否则多层嵌套的镜像变换会叠加成一次
+     * 整体 180° 翻转（"位置对了、上下反了"）。
      */
     public static final BedrockAxes DEFAULT =
-            new BedrockAxes(true, true, BedrockRenderMath.EulerOrder.ZYX);
+            new BedrockAxes(true, true, BedrockRenderMath.EulerOrder.XYZ);
 
     /** 完全不转换。用于单元测试里对照"原始 JSON 数据"。 */
     public static final BedrockAxes IDENTITY =
-            new BedrockAxes(false, false, BedrockRenderMath.EulerOrder.ZYX);
+            new BedrockAxes(false, false, BedrockRenderMath.EulerOrder.XYZ);
 
     /**
      * 换一个 cube 欧拉角定序，其余不变。
@@ -51,7 +54,7 @@ public record BedrockAxes(boolean mirrorGeometry, boolean mirrorAnimation,
      * <p>现已删除该转换。定序差异若将来确实需要支持，必须重新实现并补上
      * <b>往返一致性断言</b>（转过去再转回来必须得到原值），不能只靠"看起来对"。
      *
-     * <p>当前所有模型统一按 {@code ZYX} 解析。
+     * <p>当前所有模型统一按 {@code XYZ} 解析。
      */
     public BedrockAxes withCubeOrder(BedrockRenderMath.EulerOrder order) {
         return order == null || order == cubeOrder
@@ -72,6 +75,12 @@ public record BedrockAxes(boolean mirrorGeometry, boolean mirrorAnimation,
      *
      * <p>X 镜像下 pivot 的 X 取反、旋转按 {@code (rx, -ry, -rz)} 处理
      * （叉乘顺序随镜像翻转）。
+     *
+     * <p>这个 {@code (x, -y, -z)} 变换对<b>任意</b>欧拉定序都成立：
+     * 单轴旋转的共轭是 {@code M·Rx·M = Rx}、{@code M·Ry·M = Ry(-θ)}、
+     * {@code M·Rz·M = Rz(-θ)}，而共轭对乘积分配，所以组合顺序不影响结果。
+     * 关键前提是<b>骨骼与立方体用同一套定序</b>，见
+     * {@link BedrockRenderMath#boneRotationEuler}。
      */
     public void applyBone(Vector3f pivot, Vector3f rotation) {
         if (!mirrorGeometry) return;
@@ -103,7 +112,8 @@ public record BedrockAxes(boolean mirrorGeometry, boolean mirrorAnimation,
             if (pivot != null) {
                 pivot.set(-pivot.x(), pivot.y(), pivot.z());
             }
-            // 镜像下的旋转：叉乘顺序随镜像翻转
+            // 镜像下的旋转：叉乘顺序随镜像翻转。
+            // 对任意定序都成立，前提是 cube 与 bone 用同一套定序。
             rotation.set(rotation.x(), -rotation.y(), -rotation.z());
         }
         // 定序转换：本模型定序 → 渲染器固定使用的标准定序

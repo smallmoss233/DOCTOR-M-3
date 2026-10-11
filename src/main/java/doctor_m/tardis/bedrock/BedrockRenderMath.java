@@ -24,15 +24,14 @@ public final class BedrockRenderMath {
      * 还原，几何体才会回到原位。定序错了，凡是多轴旋转的块都会散开，
      * 而单轴旋转的块看起来完全正常 —— 这正是"只有复杂旋转的薄片错位"的成因。
      *
-     * <p>Cube 的定序无法从数据里可靠反推（实测轴向评分 0.931~0.980，差距在噪声级），
-     * 所以做成运行时可切换：用 {@code /dmbedrock rotation <order>} 现场试，
-     * 哪个对就用哪个，不必改代码重编。
+     * <p>Cube 的定序无法从数据里可靠反推，所以做成可切换：现场试，
+     * 哪个对就用哪个。当前默认 {@link #XYZ}。
      */
     public enum EulerOrder {
-        /** Rx·Ry·Rz —— Z→Y→X。Blockbench 对 cube 的默认导出定序。 */
-        ZYX,
-        /** Rz·Ry·Rx —— X→Y→Z。Blockbench 对 bone 的默认导出定序。 */
+        /** 先 X → 再 Y → 最后 Z（矩阵 Rz·Ry·Rx）。当前 cube 与 bone 的统一默认。 */
         XYZ,
+        /** 先 Z → 再 Y → 最后 X（矩阵 Rx·Ry·Rz）。 */
+        ZYX,
         YXZ, YZX, ZXY, XZY;
 
         public EulerOrder next() {
@@ -44,11 +43,15 @@ public final class BedrockRenderMath {
     /**
      * cube 旋转当前使用的定序。
      *
-     * <p>默认 {@link EulerOrder#ZYX}。若模型里多轴旋转的块错位，用
-     * {@code /dmbedrock rotation <order>} 逐个试 —— 这是唯一可靠的判定方式，
-     * 因为从数据本身反推不出定序。
+     * <p><b>当前默认 {@link EulerOrder#XYZ}</b>：实测（{@code /dmbedrock rotation XYZ}
+     * 现场验证过）Blockbench 对<b>这个控制台模型</b>的 cube 和 bone 都是按
+     * X → Y → Z 的顺序导出的。骨骼与立方体必须用同一套定序，否则多层嵌套下
+     * 镜像变换会叠加成一次整体 180° 翻转，表现为"位置对了、上下反了"。
+     *
+     * <p>历史上曾把 cube 默认设为 ZYX、bone 硬编码 XYZ，两者不一致，是控制台
+     * "只有三轴旋转的薄片错位"的直接原因。现已统一。
      */
-    private static volatile EulerOrder cubeOrder = EulerOrder.ZYX;
+    private static volatile EulerOrder cubeOrder = EulerOrder.XYZ;
 
     /**
      * 全局 Y↔Z 轴交换。**已废弃，保留仅为兼容，永远保持 false。**
@@ -82,10 +85,12 @@ public final class BedrockRenderMath {
     /**
      * 骨骼旋转的欧拉角定序。
      *
-     * <p>Blockbench 对<b>骨骼</b>使用 X → Y → Z 的定序。
+     * <p><b>与 cube 使用同一套定序</b>（{@link #cubeOrder}）。骨骼与立方体若用
+     * 不同定序，镜像变换 {@code (x, -y, -z)} 会在多层嵌套下叠加成一次整体
+     * 180° 翻转 —— 表现为"位置对了、上下反了"，且只有三轴旋转的骨骼才会暴露。
      */
     public static Quaternionf boneRotationEuler(Vector3f degrees) {
-        return euler(degrees, EulerOrder.XYZ, false);
+        return euler(degrees, cubeOrder, false);
     }
 
     /** 用全局定序构造 cube 旋转（旧调用点兼容用）。 */
@@ -96,7 +101,7 @@ public final class BedrockRenderMath {
     /**
      * 用<b>指定</b>定序构造 cube 旋转。
      *
-     * <p>这是推荐的调用方式：定序应当来自模型自身（外观 JSON 的
+     * <p>推荐的调用方式：定序应当来自模型自身（外观 JSON 的
      * {@code rotation_order} 字段），而不是全局状态 ——
      * 否则切一个模型会把其他所有模型一起改掉。
      *
@@ -125,14 +130,18 @@ public final class BedrockRenderMath {
         Quaternionf qy = new Quaternionf().rotationY(ry);
         Quaternionf qz = new Quaternionf().rotationZ(rz);
 
-        // 四元数按"先作用的写在右边"组合，与矩阵乘法次序一致。
+        // JOML 里 a.mul(b) 是 a ← a·b，所以 qz.mul(qy).mul(qx) 得到 qz·qy·qx，
+        // 作用到向量上是"先 X → 再 Y → 最后 Z"。
+        //
+        // 注意：下面两行注释曾经与代码相反，是 AG 反复试错时被带偏的根源。
+        // 现已按 JOML 实际语义写明。
         Quaternionf q = switch (order) {
-            case XYZ -> qz.mul(qy).mul(qx);   // Rx·Ry·Rz
-            case ZYX -> qx.mul(qy).mul(qz);   // Rz·Ry·Rx
-            case YXZ -> qz.mul(qx).mul(qy);   // Ry·Rx·Rz
-            case YZX -> qx.mul(qz).mul(qy);   // Ry·Rz·Rx
-            case ZXY -> qy.mul(qx).mul(qz);   // Rz·Rx·Ry
-            case XZY -> qy.mul(qz).mul(qx);   // Rx·Rz·Ry
+            case XYZ -> qz.mul(qy).mul(qx);   // 先 X → 再 Y → 最后 Z（矩阵 Rz·Ry·Rx）
+            case ZYX -> qx.mul(qy).mul(qz);   // 先 Z → 再 Y → 最后 X（矩阵 Rx·Ry·Rz）
+            case YXZ -> qz.mul(qx).mul(qy);   // 先 Y → 再 X → 最后 Z
+            case YZX -> qx.mul(qz).mul(qy);   // 先 Y → 再 Z → 最后 X
+            case ZXY -> qy.mul(qx).mul(qz);   // 先 Z → 再 X → 最后 Y
+            case XZY -> qy.mul(qz).mul(qx);   // 先 X → 再 Z → 最后 Y
         };
 
         if (swapAxes) {
