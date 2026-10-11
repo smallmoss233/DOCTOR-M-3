@@ -1,4 +1,4 @@
-package doctor_m.tardis.bedrock;
+package mosslib.core.bedrock;
 
 import net.minecraft.resources.Identifier;
 import org.joml.Vector3f;

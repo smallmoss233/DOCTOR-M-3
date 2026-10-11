@@ -2,9 +2,9 @@ package doctor_m.client.gui.pip;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
-import doctor_m.client.tardis.render.BedrockModelRenderer;
-import doctor_m.tardis.bedrock.BedrockGeometryModel;
-import doctor_m.tardis.bedrock.BoundingBox;
+import mosslib.core.render.BedrockModelRenderer;
+import mosslib.core.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BoundingBox;
 import net.minecraft.client.gui.render.pip.PictureInPictureRenderer;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderTypes;

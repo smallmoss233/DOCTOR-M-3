@@ -1,4 +1,4 @@
-package mosslib.dimension;
+package mosslib.core.dimension;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;

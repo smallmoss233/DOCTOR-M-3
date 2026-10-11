@@ -1,6 +1,6 @@
 package doctor_m.register;
 
-import mosslib.api.AutoRegister;
+import mosslib.core.api.AutoRegister;
 import net.minecraft.sounds.SoundEvent;
 
 public final class DMSounds {

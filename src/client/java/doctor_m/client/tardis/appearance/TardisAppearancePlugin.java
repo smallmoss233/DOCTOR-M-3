@@ -7,6 +7,8 @@ import com.google.gson.JsonParser;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
+import mosslib.core.bedrock.BedrockRenderMath;
+import mosslib.core.bedrock.BedrockCache;
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelLoadingPlugin;
 import net.fabricmc.fabric.api.client.model.loading.v1.PreparableModelLoadingPlugin;
 import net.minecraft.resources.Identifier;
@@ -145,9 +147,9 @@ public final class TardisAppearancePlugin
 
         // cube 欧拉角定序：按模型指定。Blockbench 手工自由旋转对定序极敏感，
         // 不同时期导出的模型可能不同，所以它必须是 per-model 而非全局。
-        doctor_m.client.tardis.render.BedrockCache.setGeometryRotationOrder(
+        BedrockCache.setGeometryRotationOrder(
                 geo,
-                doctor_m.tardis.bedrock.BedrockRenderMath.parseOrder(
+                BedrockRenderMath.parseOrder(
                         readString(o, "rotation_order", null), null));
 
         // animation 缺失 = 静态模型，允许。

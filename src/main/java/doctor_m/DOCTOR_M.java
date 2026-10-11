@@ -9,7 +9,7 @@ import doctor_m.stp.StpPackets;
 import doctor_m.stp.StpServerState;
 import doctor_m.stp.StpTrigger;
 import doctor_m.tardis.TardisManager;
-import mosslib.dimension.DynamicDimensionManager;
+import mosslib.core.dimension.DynamicDimensionManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;

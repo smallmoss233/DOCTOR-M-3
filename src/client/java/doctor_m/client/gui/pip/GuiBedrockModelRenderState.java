@@ -1,6 +1,6 @@
 package doctor_m.client.gui.pip;
 
-import doctor_m.tardis.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockGeometryModel;
 import net.minecraft.client.gui.navigation.ScreenRectangle;
 import net.minecraft.client.renderer.state.gui.pip.PictureInPictureRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;

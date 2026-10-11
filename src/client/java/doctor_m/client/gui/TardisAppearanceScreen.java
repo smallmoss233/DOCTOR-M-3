@@ -1,9 +1,9 @@
 package doctor_m.client.gui;
 
 import doctor_m.client.gui.pip.GuiBedrockModelRenderState;
-import doctor_m.client.tardis.render.BedrockCache;
-import doctor_m.client.tardis.render.BedrockModelRef;
-import doctor_m.client.tardis.render.BedrockRenderPipeline;
+import mosslib.core.bedrock.BedrockCache;
+import mosslib.core.bedrock.BedrockModelRef;
+import mosslib.core.render.BedrockRenderPipeline;
 import doctor_m.network.SetTardisAppearancePayload;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
@@ -22,7 +22,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 public class TardisAppearanceScreen extends Screen {

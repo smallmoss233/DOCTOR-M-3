@@ -2,6 +2,8 @@ package doctor_m.client.tardis.console;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import mosslib.core.bedrock.BedrockRenderMath;
+import mosslib.core.bedrock.BedrockCache;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.core.Direction;
@@ -72,9 +74,9 @@ public final class TardisConsoleLoader {
         // cube 欧拉角定序：按模型指定，避免全局切换把其他模型一起改坏。
         // Blockbench 手工拖出来的自由旋转对定序极敏感，而不同时期导出的模型
         // 可能用不同定序，所以它必须是 per-model 的。
-        doctor_m.client.tardis.render.BedrockCache.setGeometryRotationOrder(
+        BedrockCache.setGeometryRotationOrder(
                 geometry,
-                doctor_m.tardis.bedrock.BedrockRenderMath.parseOrder(
+                BedrockRenderMath.parseOrder(
                         readString(json, "rotation_order"), null));
 
         String displayName = json.has("display_name")

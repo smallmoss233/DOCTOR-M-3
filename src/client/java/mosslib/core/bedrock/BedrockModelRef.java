@@ -1,6 +1,6 @@
-package doctor_m.client.tardis.render;
+package mosslib.core.bedrock;
 
-import doctor_m.tardis.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockGeometryModel;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 
 public record BedrockModelRef(

@@ -1,7 +1,7 @@
 package doctor_m.register;
 
 import doctor_m.item.TardisSpawnerItem;
-import mosslib.api.AutoRegister;
+import mosslib.core.api.AutoRegister;
 import net.minecraft.world.item.Item;
 
 public final class DMItems {

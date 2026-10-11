@@ -1,4 +1,4 @@
-package mosslib.dimension;
+package mosslib.core.dimension;
 
 import mosslib.mixin.MinecraftServerAccessor;
 import net.minecraft.resources.ResourceKey;

@@ -1,8 +1,10 @@
-package doctor_m.client.tardis.render;
+package mosslib.core.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import doctor_m.tardis.bedrock.BedrockAnimationModel;
-import doctor_m.tardis.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockAnimationModel;
+import mosslib.core.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockCache;
+import mosslib.core.bedrock.BedrockModelRef;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;

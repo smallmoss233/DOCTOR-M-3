@@ -1,4 +1,4 @@
-package mosslib.dimension;
+package mosslib.core.dimension;
 
 import com.mojang.serialization.Codec;
 import net.minecraft.core.registries.Registries;

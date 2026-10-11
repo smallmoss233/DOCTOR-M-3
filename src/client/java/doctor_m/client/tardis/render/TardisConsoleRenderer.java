@@ -5,6 +5,8 @@ import doctor_m.block.TardisConsoleBlock;
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.client.tardis.console.TardisConsoleAppearance;
 import doctor_m.client.tardis.console.TardisConsoleRegistry;
+import mosslib.core.bedrock.BedrockModelRef;
+import mosslib.core.render.BedrockRenderPipeline;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;

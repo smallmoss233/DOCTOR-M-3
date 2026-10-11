@@ -1,4 +1,4 @@
-package mosslib.api;
+package mosslib.core.api;
 
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.network.RegistryFriendlyByteBuf;

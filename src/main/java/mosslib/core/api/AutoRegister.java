@@ -1,4 +1,4 @@
-package mosslib.api;
+package mosslib.core.api;
 
 import mosslib.MossLib;
 import net.minecraft.core.Registry;

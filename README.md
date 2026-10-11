@@ -162,10 +162,6 @@
 - `/dmbedrock check` —— 逐套外观尝试加载其引用的全部资源，列出缺失的几何 / 动画 / 动画名
 - `/dmbedrock reload` —— 清空缓存，改了模型 JSON 后无需重启游戏
 
-架构说明、坐标系定式与目视校验清单见
-[`docs/BEDROCK.md`](docs/BEDROCK.md)。模型层的独立运行时验证见
-[`tools/bedrock-verify`](tools/bedrock-verify)（84 项断言，不启动游戏即可运行）。
-
 ---
 
 ## 依赖

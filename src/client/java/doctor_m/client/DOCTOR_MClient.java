@@ -5,7 +5,7 @@ import doctor_m.client.gui.pip.GuiBedrockModelRenderer;
 import doctor_m.client.network.DMClientNetwork;
 import doctor_m.client.stp.StpClientState;
 import doctor_m.client.tardis.appearance.TardisAppearancePlugin;
-import doctor_m.client.tardis.render.BedrockCache;
+import mosslib.core.bedrock.BedrockCache;
 import doctor_m.client.tardis.console.TardisConsoleLoader;
 import doctor_m.client.tardis.render.TardisConsoleRenderer;
 import doctor_m.client.tardis.render.TardisDoorRenderer;

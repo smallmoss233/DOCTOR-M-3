@@ -1,6 +1,6 @@
 package doctor_m.stp;
 
-import mosslib.api.PayloadRegistrar;
+import mosslib.core.api.PayloadRegistrar;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;

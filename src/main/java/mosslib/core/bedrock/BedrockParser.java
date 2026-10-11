@@ -1,4 +1,4 @@
-package doctor_m.tardis.bedrock;
+package mosslib.core.bedrock;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;

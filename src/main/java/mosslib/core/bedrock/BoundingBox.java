@@ -1,4 +1,4 @@
-package doctor_m.tardis.bedrock;
+package mosslib.core.bedrock;
 
 import org.joml.Matrix4f;
 import org.joml.Vector3f;

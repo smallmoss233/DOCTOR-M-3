@@ -2,7 +2,7 @@ package doctor_m.register;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.block.entity.TardisDoorBlockEntity;
-import mosslib.api.AutoRegister;
+import mosslib.core.api.AutoRegister;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 
 import java.util.Set;

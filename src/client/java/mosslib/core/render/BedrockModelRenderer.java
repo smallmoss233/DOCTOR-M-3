@@ -1,9 +1,11 @@
-package doctor_m.client.tardis.render;
+package mosslib.core.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import doctor_m.tardis.bedrock.BedrockAnimationModel;
-import doctor_m.tardis.bedrock.BedrockGeometryModel;
-import doctor_m.tardis.bedrock.BedrockRenderMath;
+import mosslib.core.bedrock.BedrockAnimationModel;
+import mosslib.core.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockParser;
+import mosslib.core.bedrock.BedrockRenderMath;
+import mosslib.core.bedrock.BedrockAxes;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
@@ -17,8 +19,8 @@ import java.util.Map;
  * 通用基岩几何体渲染器。
  *
  * <p>坐标系：内部全部使用 Bedrock 原生坐标（+X 东、+Y 上、+Z 南）。
- * 轴向与镜像已在 {@link doctor_m.tardis.bedrock.BedrockParser} 解析时一次性完成
- * （定式见 {@link doctor_m.tardis.bedrock.BedrockAxes}），本类不做任何翻转。
+ * 轴向与镜像已在 {@link BedrockParser} 解析时一次性完成
+ * （定式见 {@link BedrockAxes}），本类不做任何翻转。
  *
  * <p>本类不知道 TARDIS 是什么，可用于任何基岩模型。
  *

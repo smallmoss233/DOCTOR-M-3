@@ -3,7 +3,7 @@ package doctor_m.register;
 import doctor_m.block.TardisConsoleBlock;
 import doctor_m.block.TardisExteriorBlock;
 import doctor_m.block.TardisInteriorDoorBlock;
-import mosslib.api.AutoRegister;
+import mosslib.core.api.AutoRegister;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.material.MapColor;

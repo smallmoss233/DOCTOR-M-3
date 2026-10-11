@@ -1,15 +1,15 @@
-package doctor_m.client.tardis.render;
+package mosslib.core.bedrock;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
-import doctor_m.tardis.bedrock.BedrockAnimationModel;
-import doctor_m.tardis.bedrock.BedrockAxes;
-import doctor_m.tardis.bedrock.BedrockGeometryModel;
-import doctor_m.tardis.bedrock.BedrockParser;
-import doctor_m.tardis.bedrock.BedrockRenderMath;
+import mosslib.core.bedrock.BedrockAnimationModel;
+import mosslib.core.bedrock.BedrockAxes;
+import mosslib.core.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockParser;
+import mosslib.core.bedrock.BedrockRenderMath;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.client.Minecraft;

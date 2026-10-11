@@ -1,4 +1,4 @@
-package mosslib.dimension;
+package mosslib.core.dimension;
 
 import com.mojang.logging.LogUtils;
 import mosslib.mixin.MinecraftServerAccessor;
