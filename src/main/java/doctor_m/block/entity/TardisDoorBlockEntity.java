@@ -173,7 +173,7 @@ public class TardisDoorBlockEntity extends BlockEntity {
 
     private void syncToClient() {
         if (level != null && !level.isClientSide()) {
-            level.sendBlockUpdated(getBlockPos(), getBlockState(), getBlockState(), 3);
+            level.sendBlockUpdated(getBlockPos(), getBlockState(), getBlockState(), 2);
         }
     }
 }

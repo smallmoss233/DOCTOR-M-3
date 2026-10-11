@@ -3,6 +3,7 @@ package doctor_m.block;
 import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -10,21 +11,52 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.UUID;
 
+/**
+ * TARDIS 内门。
+ *
+ * <p>碰撞就是一块 <b>2 像素厚的纯薄板</b>，贴在方块<b>背离玩家来向</b>的边缘
+ * （即 FACING 反向边缘）。不加底座 —— 房间里是平地，玩家不会掉下去。
+ */
 public class TardisInteriorDoorBlock extends AbstractTardisDoorBlock {
+
+    /** 门板两侧留空（像素）。玩家宽 0.6 格 ≈ 9.6 像素，留 3 像素可贴着门框通过。 */
+    private static final int SIDE = 3;
+    /** 门板厚度（像素）。 */
+    private static final int PANEL = 2;
 
     public TardisInteriorDoorBlock(Properties props) {
         super(props);
     }
 
-    // 内门不再覆盖门平面位置：实测两个门的模型在方块内落在同一侧
-    // （内门几何体的根骨骼带 rotation:[0,180,0]，已经把门摆到与外门一致的位置），
-    // 因此碰撞板用基类的同一个平面即可。详见 AbstractTardisDoorBlock#doorPlanePixels。
+    // ================================================================
+    //   门板：贴在方块背离玩家来向的边缘（FACING 反向）
+    //   上下半形状相同
+    // ================================================================
+
+    @Override
+    protected VoxelShape doorPanelShape(Direction facing, DoubleBlockHalf half) {
+        return switch (facing) {
+            case NORTH -> Block.box(0, 0, 16 - PANEL, 16, 16, 16);
+            case SOUTH -> Block.box(0, 0, 0, 16, 16, PANEL);
+            case EAST  -> Block.box(0, 0, 0, PANEL, 16, 16);
+            case WEST  -> Block.box(16 - PANEL, 0, 0, 16, 16, 16);
+            default    -> Shapes.empty();
+        };
+    }
+
+    // ================================================================
+    //   其余逻辑不变
+    // ================================================================
 
     @Override
     protected TardisData findTardis(MinecraftServer server, ServerLevel level, BlockPos pos) {
@@ -50,7 +82,6 @@ public class TardisInteriorDoorBlock extends AbstractTardisDoorBlock {
 
         UUID id = TardisManager.tardisIdFromDimension(sl.dimension());
         if (id == null) {
-            // 不在 TARDIS 维度 → 拆掉
             sl.setBlockAndUpdate(pos, Blocks.AIR.defaultBlockState());
             sl.setBlockAndUpdate(pos.above(), Blocks.AIR.defaultBlockState());
             if (placer instanceof ServerPlayer sp) {
