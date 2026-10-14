@@ -3,8 +3,11 @@ package doctor_m.client.tardis.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import doctor_m.block.TardisConsoleBlock;
 import doctor_m.block.entity.TardisConsoleBlockEntity;
-import doctor_m.client.tardis.console.TardisConsoleAppearance;
-import doctor_m.client.tardis.console.TardisConsoleRegistry;
+import doctor_m.client.tardis.console.ConsoleAnimationController;
+import doctor_m.tardis.console.TardisConsoleAppearance;
+import doctor_m.tardis.console.TardisConsoleRegistry;
+import mosslib.core.bedrock.BedrockAnimationModel;
+import mosslib.core.bedrock.BedrockCache;
 import mosslib.core.bedrock.BedrockModelRef;
 import mosslib.core.render.BedrockRenderPipeline;
 import net.minecraft.client.renderer.SubmitNodeCollector;
@@ -26,6 +29,11 @@ import java.util.Map;
  *
  * <p>比门渲染器简单：没有开关状态，只有一段从"首次可见"开始无限循环的 idle 动画。
  * 所有几何 / 动画 / 变换逻辑都在 {@link BedrockRenderPipeline} 里。
+ *
+ * <h2>控件动画</h2>
+ * 除了 idle，控制台上的每个控件实体（{@link doctor_m.tardis.console.ConsoleControlEntity}）
+ * 还可以驱动它绑定的骨骼。overrides 表在 {@link #extractRenderState} 里组装
+ * （那里能拿到 BE），在 {@link #submit} 里传给 {@link BedrockRenderPipeline}。
  */
 public class TardisConsoleRenderer
         implements BlockEntityRenderer<TardisConsoleBlockEntity, TardisConsoleRenderState> {
@@ -75,6 +83,16 @@ public class TardisConsoleRenderer
 
         long startNs = IDLE_START_NS.getOrDefault(pos, nowNs);
         state.idleElapsedSec = (nowNs - startNs) / 1_000_000_000f;
+
+        // ---- 控件动画 overrides ----
+        TardisConsoleAppearance ca = TardisConsoleRegistry.get(be.getAppearanceId());
+        if (ca != null) {
+            Map<String, BedrockAnimationModel.Animation> clips =
+                    BedrockCache.animations(ca.animation());
+            state.controlOverrides = ConsoleAnimationController.buildOverrides(be, clips, ca);
+        } else {
+            state.controlOverrides = Map.of();
+        }
     }
 
     @Override
@@ -95,10 +113,11 @@ public class TardisConsoleRenderer
         BedrockRenderPipeline.render(
                 poseStack, collector, ref,
                 sa.anim(), sa.time(),
+                state.controlOverrides,                                                     // ← 新增
                 state.facing, ca.modelFacing(),
                 ca.offsetX(), ca.offsetY(), ca.offsetZ(), ca.scale(),
                 state.lightCoords,
-                net.minecraft.client.renderer.rendertype.RenderTypes.cutoutMovingBlock(),   // ← RenderType
-                1.0f);                                                                      // ← alpha
+                net.minecraft.client.renderer.rendertype.RenderTypes.cutoutMovingBlock(),
+                1.0f);
     }
 }

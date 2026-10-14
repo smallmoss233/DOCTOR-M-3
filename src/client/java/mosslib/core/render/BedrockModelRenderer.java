@@ -24,15 +24,10 @@ import java.util.Map;
  *
  * <p>本类不知道 TARDIS 是什么，可用于任何基岩模型。
  *
- * <h2>相对旧版的性能与正确性改动</h2>
- * <ul>
- *   <li>方向性明暗系数在类初始化时预乘，不再每个面现场拼颜色。</li>
- *   <li>每次 {@code submitCustomGeometry} 的临时向量被提到闭包之外，
- *       不再逐 cube 分配。</li>
- *   <li>骨骼与 cube 使用各自的欧拉角定序（旧版混用一套，见
- *       {@link BedrockRenderMath}）。</li>
- *   <li>{@code uv_rotation} 现已生效（旧版忽略）。</li>
- * </ul>
+ * <h2>骨骼动画覆盖</h2>
+ * 通过 {@link #render} 的 {@code overrides} 参数，可以让某个骨骼走独立
+ * 于基础动画（通常是 idle）的另一段轨道。未覆盖的骨骼继续走 baseAnim。
+ * 见 {@link BoneOverride}。
  */
 public final class BedrockModelRenderer {
 
@@ -41,8 +36,6 @@ public final class BedrockModelRenderer {
     private static final String[] FACE_NAMES =
             {"north", "south", "east", "west", "up", "down"};
 
-    // 每个面 4 个顶点。索引 0 = min，1 = max。
-    // 顺序：从面外侧看，逆时针，起点为屏幕左上。
     private static final int[][][] FACE_CORNERS = {
             { {1,1,0}, {1,0,0}, {0,0,0}, {0,1,0} }, // north
             { {0,1,1}, {0,0,1}, {1,0,1}, {1,1,1} }, // south
@@ -57,21 +50,10 @@ public final class BedrockModelRenderer {
             {-1,  0,  0}, { 0,  1,  0}, { 0, -1,  0},
     };
 
-    /**
-     * 方向性阴影，顺序与 {@link #FACE_NAMES} 对应。
-     * 数值就是原版 MC 的 {@code Direction.getShade()}：UP 最亮、DOWN 最暗、
-     * E/W 比 N/S 暗一档。
-     */
     private static final float[] FACE_SHADES = {
-            0.8f,  // north
-            0.8f,  // south
-            0.6f,  // east
-            0.6f,  // west
-            1.0f,  // up
-            0.5f,  // down
+            0.8f, 0.8f, 0.6f, 0.6f, 1.0f, 0.5f,
     };
 
-    /** 预乘到 0..255 的灰度值，避免每个面现场算。 */
     private static final int[] FACE_SHADE_BYTES = new int[6];
 
     static {
@@ -81,24 +63,52 @@ public final class BedrockModelRenderer {
     }
 
     // ============================================================
+    //                    骨骼覆盖
+    // ============================================================
+
+    /**
+     * 单个骨骼的动画覆盖。
+     *
+     * <p>{@code overrides.get("油门")} 只覆盖"油门"骨骼本身，不递归到
+     * 它的子骨骼。子骨骼若想跟着走，也在 map 里加一条。
+     */
+    public record BoneOverride(BedrockAnimationModel.Animation anim, float time) {}
+
+    // ============================================================
     //                        公开入口
     // ============================================================
 
+    /** 无覆盖：所有骨骼走同一段动画。 */
     public static void render(PoseStack pose, SubmitNodeCollector collector,
                               BedrockGeometryModel geo, TextureAtlasSprite sprite,
                               RenderType rt,
                               BedrockAnimationModel.Animation anim, float time,
                               int light, float alpha) {
+        render(pose, collector, geo, sprite, rt, anim, time, Map.of(), light, alpha);
+    }
+
+    /**
+     * 带骨骼覆盖的渲染。
+     *
+     * @param anim      基础动画（通常是 idle）；应用到所有骨骼
+     * @param time      基础动画时间（秒）
+     * @param overrides 骨骼名 → 该骨骼专属的动画覆盖；空 map = 全部走 base
+     */
+    public static void render(PoseStack pose, SubmitNodeCollector collector,
+                              BedrockGeometryModel geo, TextureAtlasSprite sprite,
+                              RenderType rt,
+                              BedrockAnimationModel.Animation anim, float time,
+                              Map<String, BoneOverride> overrides,
+                              int light, float alpha) {
         if (geo == null || sprite == null) return;
 
-        // 逐 cube 复用的临时对象：提到循环外，避免每帧每 cube 分配。
         Vector3f tmp = new Vector3f();
         Vector3f nrm = new Vector3f();
         float[] u = new float[4];
         float[] v = new float[4];
 
         for (BedrockGeometryModel.Bone root : geo.rootBones()) {
-            renderBone(pose, collector, geo, sprite, rt, anim, time,
+            renderBone(pose, collector, geo, sprite, rt, anim, time, overrides,
                     root, null, light, alpha, tmp, nrm, u, v);
         }
     }
@@ -110,24 +120,36 @@ public final class BedrockModelRenderer {
     private static void renderBone(PoseStack pose, SubmitNodeCollector collector,
                                    BedrockGeometryModel geo, TextureAtlasSprite sprite,
                                    RenderType rt,
-                                   BedrockAnimationModel.Animation anim, float time,
+                                   BedrockAnimationModel.Animation baseAnim, float baseTime,
+                                   Map<String, BoneOverride> overrides,
                                    BedrockGeometryModel.Bone bone,
                                    Vector3f parentPivot, int light, float alpha,
                                    Vector3f tmp, Vector3f nrm, float[] u, float[] v) {
+
+        // 选源：这个骨骼有 override 就用 override，否则走 base
+        BedrockAnimationModel.Animation sourceAnim = baseAnim;
+        float sourceTime = baseTime;
+        if (overrides != null) {
+            BoneOverride ov = overrides.get(bone.name());
+            if (ov != null) {
+                sourceAnim = ov.anim();
+                sourceTime = ov.time();
+            }
+        }
 
         Vector3f pivot = bone.pivot();
         Vector3f rotation = bone.rotation();
         Vector3f position = null;
         Vector3f scale = null;
 
-        if (anim != null) {
-            BedrockAnimationModel.BoneTracks tracks = anim.bones().get(bone.name());
+        if (sourceAnim != null) {
+            BedrockAnimationModel.BoneTracks tracks = sourceAnim.bones().get(bone.name());
             if (tracks != null) {
-                Vector3f kf = BedrockRenderMath.sample(tracks.rotation(), time);
+                Vector3f kf = BedrockRenderMath.sample(tracks.rotation(), sourceTime);
                 if (kf != null) rotation = kf;
-                kf = BedrockRenderMath.sample(tracks.position(), time);
+                kf = BedrockRenderMath.sample(tracks.position(), sourceTime);
                 if (kf != null) position = kf;
-                kf = BedrockRenderMath.sample(tracks.scale(), time);
+                kf = BedrockRenderMath.sample(tracks.scale(), sourceTime);
                 if (kf != null) scale = kf;
             }
         }
@@ -162,8 +184,10 @@ public final class BedrockModelRenderer {
                         light, alpha, tmp, nrm, u, v);
             }
 
+            // ★ 递归时传 baseAnim / baseTime —— 子骨骼默认走 base，
+            //   除非它自己也在 overrides map 里
             for (BedrockGeometryModel.Bone child : bone.children()) {
-                renderBone(pose, collector, geo, sprite, rt, anim, time,
+                renderBone(pose, collector, geo, sprite, rt, baseAnim, baseTime, overrides,
                         child, pivot, light, alpha, tmp, nrm, u, v);
             }
         } finally {
@@ -224,8 +248,6 @@ public final class BedrockModelRenderer {
 
         final int alphaByte = (int) (Math.max(0f, Math.min(1f, alpha)) * 255f) & 0xFF;
 
-        // 退化面只取决于尺寸，逐 cube 算一次即可，不必在顶点循环里反复判断。
-        // 注意用局部数组：静态共享数组会在多线程渲染（光影类模组）下互相踩踏。
         final boolean[] degenerate = new boolean[6];
         final int[] shadeBytes = new int[6];
         for (int fi = 0; fi < 6; fi++) {
@@ -240,8 +262,6 @@ public final class BedrockModelRenderer {
             for (int fi = 0; fi < 6; fi++) {
                 BedrockGeometryModel.FaceUv face = faceUvs.get(FACE_NAMES[fi]);
                 if (face == null) continue;
-
-                // 退化面（面积 0）直接跳过：例如 Y=0 薄片的 N/S 面。
                 if (degenerate[fi]) continue;
 
                 final int faceColor = shadeBytes[fi];
@@ -256,7 +276,6 @@ public final class BedrockModelRenderer {
                 if (flipU) { float t = uMin; uMin = uMax; uMax = t; }
                 if (flipV) { float t = vMin; vMin = vMax; vMax = t; }
 
-                // 面内 UV 旋转：在矩形内按 90° 的倍数重排四个角。
                 BedrockRenderMath.faceUvs(face, uMin, uMax, vMin, vMax, u, v);
 
                 float[] n = FACE_NORMALS[fi];
@@ -280,12 +299,11 @@ public final class BedrockModelRenderer {
         });
     }
 
-    /** 判断面是否退化（该面只需要三个维度里的两个，任一为 0 即无面积）。 */
     private static boolean isDegenerate(int faceIndex, Vector3f size) {
         return switch (faceIndex) {
-            case 0, 1 -> size.x() == 0f || size.y() == 0f;   // north / south
-            case 2, 3 -> size.z() == 0f || size.y() == 0f;   // east / west
-            case 4, 5 -> size.x() == 0f || size.z() == 0f;   // up / down
+            case 0, 1 -> size.x() == 0f || size.y() == 0f;
+            case 2, 3 -> size.z() == 0f || size.y() == 0f;
+            case 4, 5 -> size.x() == 0f || size.z() == 0f;
             default -> false;
         };
     }

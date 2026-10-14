@@ -6,5 +6,12 @@
   "idle":         "animation.console.idle",
   "model_facing": "north",
   "offset":       [0, 0, 0],
-  "scale":        1.0
+  "scale":        1.0,
+  "controls": {
+    "油门": {
+      "type": "throttle",
+      "tiers": 5,
+      "animation": "animation.console.throttle"
+    }
+  }
 }

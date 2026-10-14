@@ -1,0 +1,16 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"animation.console.throttle": {
+			"animation_length": 0.5,
+			"bones": {
+				"推杆": {
+					"rotation": {
+						"0.0": [0, 0, 0],
+						"0.5": [70, 0, 0]
+					}
+				}
+			}
+		}
+	}
+}

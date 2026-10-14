@@ -560,6 +560,17 @@ public final class TardisManager {
                 }
             }
             case FLYING -> {
+                // 1. 位移：朝目的地按档位速度前进
+                TardisFlight.tick(server, data);
+
+                // 2. 油门归零 → 触发降落
+                if (data.throttle() == 0) {
+                    startLanding(server, data);
+                    getRegistry(server).setDirty();
+                    return;
+                }
+
+                // 3. 循环音效
                 if (t <= 0) {
                     playTardisSound(server, data, DMSounds.FLY, 0.8f, 1.0f);
                     data.setStateTicks(FLYING_SOUND_INTERVAL);
@@ -573,6 +584,8 @@ public final class TardisManager {
                     applyDestination(server, data);
                     placeExteriorDoor(server, data);
                     data.setState(TardisState.LANDED, 0);
+                    // 落地时油门必定为 0（触发降落的前提），显式清一次保险
+                    data.setThrottle(0);
                     getRegistry(server).setDirty();
                 } else {
                     data.setStateTicks(t);

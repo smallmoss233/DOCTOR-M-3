@@ -41,6 +41,7 @@ public class DOCTOR_M implements ModInitializer {
         DMBlockEntities.register();
         DMSounds.register();
         DMNetwork.register();
+        DMEntityTypes.register();
 
         // 生命周期
         ServerLifecycleEvents.SERVER_STARTED.register(server -> DynamicDimensionManager.loadAll(server));

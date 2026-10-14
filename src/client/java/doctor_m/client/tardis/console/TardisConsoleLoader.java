@@ -2,6 +2,7 @@ package doctor_m.client.tardis.console;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import doctor_m.tardis.console.*;
 import mosslib.core.bedrock.BedrockRenderMath;
 import mosslib.core.bedrock.BedrockCache;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -52,7 +53,7 @@ public final class TardisConsoleLoader {
                             try (Reader r = entry.getValue().openAsReader()) {
                                 JsonObject json = JsonParser.parseReader(r).getAsJsonObject();
                                 TardisConsoleAppearance app =
-                                        parse(appearanceId, json);
+                                        parse(appearanceId, json, rm);
                                 if (app != null) loaded.put(appearanceId, app);
                             } catch (Exception ex) {
                                 ex.printStackTrace();
@@ -64,7 +65,12 @@ public final class TardisConsoleLoader {
                 });
     }
 
-    private static TardisConsoleAppearance parse(Identifier id, JsonObject json) {
+    // =========================================================
+    //                      解析入口
+    // =========================================================
+
+    private static TardisConsoleAppearance parse(Identifier id, JsonObject json,
+                                                 ResourceManager rm) {
         Identifier geometry = readId(json, "geometry");
         if (geometry == null) return null;
 
@@ -108,8 +114,126 @@ public final class TardisConsoleLoader {
 
         return new TardisConsoleAppearance(
                 id, displayName, geometry, animation, texture, idle,
-                modelFacing, ox, oy, oz, scale);
+                modelFacing, ox, oy, oz, scale,
+                parseControls(json, rm));
     }
+
+    // =========================================================
+    //                      controls 解析
+    // =========================================================
+
+    /**
+     * 解析外观 JSON 的 "controls" 字段。
+     *
+     * <pre>{@code
+     * "controls": {
+     *   "油门": { "type": "throttle", "tiers": 5, "animation": "animation.console.throttle" }
+     * }
+     * }</pre>
+     *
+     * <h2>duration 的取值优先级</h2>
+     * <ol>
+     *   <li>JSON 里显式写的 {@code duration}</li>
+     *   <li>否则从该外观的动画文件里读对应片段的 {@code animation_length}</li>
+     *   <li>否则用 {@link ControlType} 的默认时长</li>
+     * </ol>
+     * 优先级 2 让"改动画时长"和"改控制台手感"两件事解耦 —— 只要改
+     * {@code .animation.json} 的 {@code animation_length}，游戏自动跟着变。
+     */
+    private static Map<String, ControlConfig> parseControls(JsonObject json,
+                                                            ResourceManager rm) {
+        if (!json.has("controls") || !json.get("controls").isJsonObject()) {
+            return Map.of();
+        }
+
+        // 一次性读出动画文件里所有片段的长度，供下面逐个控件查
+        Identifier animFileId = readId(json, "animation");
+        Map<String, Float> animLengths = animFileId == null
+                ? Map.of()
+                : readAnimationLengths(rm, animFileId);
+
+        JsonObject controls = json.getAsJsonObject("controls");
+        Map<String, ControlConfig> out = new HashMap<>();
+
+        for (var entry : controls.entrySet()) {
+            String boneName = entry.getKey();
+            if (!entry.getValue().isJsonObject()) continue;
+            JsonObject cfg = entry.getValue().getAsJsonObject();
+
+            // type id：显式写；没写就从骨骼名推（ctrl_xxx）
+            String typeId = readString(cfg, "type");
+            if (typeId == null) {
+                typeId = ConsoleBoneMatcher.typeId(boneName);
+            }
+            if (typeId == null) continue;
+
+            ControlType type = ControlTypes.byId(typeId);
+            if (type == null) continue;   // 未注册的类型，跳过
+
+            int tiers = cfg.has("tiers")
+                    ? cfg.get("tiers").getAsInt() : type.defaultTiers();
+
+            TierMode mode = cfg.has("tier_mode")
+                    ? TierMode.valueOf(cfg.get("tier_mode").getAsString().toUpperCase())
+                    : type.defaultTierMode();
+
+            String animationId = readString(cfg, "animation");
+
+            // duration：手写 > 动画文件 > 类型默认
+            float duration = type.defaultDuration();
+            if (animationId != null) {
+                Float auto = animLengths.get(animationId);
+                if (auto != null) duration = auto;
+            }
+            if (cfg.has("duration")) {
+                duration = cfg.get("duration").getAsFloat();
+            }
+
+            out.put(boneName, new ControlConfig(type, tiers, duration, mode, animationId));
+        }
+        return Map.copyOf(out);
+    }
+
+    /**
+     * 读取动画文件里所有片段的长度（秒）。
+     *
+     * <p>不走 {@code BedrockCache} —— 那是懒加载 + 缓存，与本 Loader
+     * 的重载顺序有微妙耦合（谁先跑不确定）。直接读资源管理器更稳。
+     *
+     * @return 片段名 → 长度；文件缺失或格式错误时返回空 map
+     */
+    private static Map<String, Float> readAnimationLengths(ResourceManager rm,
+                                                           Identifier animFileId) {
+        Identifier file = Identifier.fromNamespaceAndPath(
+                animFileId.getNamespace(),
+                animFileId.getPath() + ".json");
+
+        var res = rm.getResource(file);
+        if (res.isEmpty()) return Map.of();
+
+        try (Reader r = res.get().openAsReader()) {
+            JsonObject root = JsonParser.parseReader(r).getAsJsonObject();
+            JsonObject animations = root.getAsJsonObject("animations");
+            if (animations == null) return Map.of();
+
+            Map<String, Float> out = new HashMap<>();
+            for (var entry : animations.entrySet()) {
+                JsonObject anim = entry.getValue().isJsonObject()
+                        ? entry.getValue().getAsJsonObject() : null;
+                if (anim == null) continue;
+                if (anim.has("animation_length")) {
+                    out.put(entry.getKey(), anim.get("animation_length").getAsFloat());
+                }
+            }
+            return out;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    // =========================================================
+    //                      工具
+    // =========================================================
 
     private static Identifier readId(JsonObject json, String key) {
         if (!json.has(key) || json.get(key).isJsonNull()) return null;

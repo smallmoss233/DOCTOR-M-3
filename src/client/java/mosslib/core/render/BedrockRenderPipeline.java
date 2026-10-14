@@ -14,6 +14,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 import org.joml.Matrix4f;
 
+import java.util.Map;
+
 /**
  * 基岩模型的"从资源 ID 到屏幕像素"的中间层。
  *
@@ -95,9 +97,27 @@ public final class BedrockRenderPipeline {
      * @param scale        全局缩放（像素倍率）
      * @param light        光照值
      */
+
+    /**
+     * 无骨骼覆盖的渲染 —— 门 / 其他不需要 overrides 的场景用这个。
+     *
+     * <p>转发到带 {@code overrides} 的重载，传空 map。
+     */
     public static void render(PoseStack pose, SubmitNodeCollector collector,
                               BedrockModelRef ref,
                               BedrockAnimationModel.Animation anim, float animTime,
+                              Direction facing, Direction modelFacing,
+                              float offsetX, float offsetY, float offsetZ, float scale,
+                              int light,
+                              RenderType rt, float alpha) {
+        render(pose, collector, ref, anim, animTime, Map.of(),
+                facing, modelFacing, offsetX, offsetY, offsetZ, scale, light, rt, alpha);
+    }
+
+    public static void render(PoseStack pose, SubmitNodeCollector collector,
+                              BedrockModelRef ref,
+                              BedrockAnimationModel.Animation anim, float animTime,
+                              Map<String, BedrockModelRenderer.BoneOverride> overrides,
                               Direction facing, Direction modelFacing,
                               float offsetX, float offsetY, float offsetZ, float scale,
                               int light,
@@ -114,8 +134,9 @@ public final class BedrockRenderPipeline {
             float sc = scale / 16f;
             pose.scale(sc, sc, sc);
 
-            BedrockModelRenderer.render(pose, collector, ref.geometry(), ref.sprite(),
-                    rt, anim, animTime, light, alpha);
+            mosslib.core.render.BedrockModelRenderer.render(
+                    pose, collector, ref.geometry(), ref.sprite(),
+                    rt, anim, animTime, overrides, light, alpha);
         } finally {
             pose.popPose();
         }

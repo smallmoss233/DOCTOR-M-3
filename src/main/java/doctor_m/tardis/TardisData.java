@@ -43,6 +43,8 @@ public final class TardisData {
     private ResourceKey<Level> targetDim = null;
     /** 目的地坐标（未设置时为 null）。 */
     private BlockPos targetPos = null;
+    /** 当前油门档位（0..4）。0 = 熄火，正数 = 飞行中该档速度。 */
+    private int throttle = 0;
 
     // ============================================================
     //                      兼容构造器
@@ -71,7 +73,7 @@ public final class TardisData {
                 interiorPos, interiorFacing, DEFAULT_APPEARANCE, spareDoors);
     }
 
-    /** 完整构造器。状态字段保持默认（LANDED / 0 / null / null）。 */
+    /** 完整构造器。状态字段保持默认（LANDED / 0 / null / null / 0）。 */
     public TardisData(UUID id, UUID owner,
                       ResourceKey<Level> exteriorDim, BlockPos exteriorPos, Direction exteriorFacing,
                       BlockPos interiorPos, Direction interiorFacing,
@@ -113,14 +115,17 @@ public final class TardisData {
             ResourceKey.codec(Registries.DIMENSION).optionalFieldOf("target_dim")
                     .forGetter(d -> Optional.ofNullable(d.targetDim)),
             BlockPos.CODEC.optionalFieldOf("target_pos")
-                    .forGetter(d -> Optional.ofNullable(d.targetPos))
+                    .forGetter(d -> Optional.ofNullable(d.targetPos)),
+            Codec.INT.optionalFieldOf("throttle", 0)
+                    .forGetter(TardisData::throttle)
     ).apply(inst, (id, owner, ed, ep, ef, ip, inf, app, spares,
-                   state, ticks, tdim, tpos) -> {
+                   state, ticks, tdim, tpos, throt) -> {
         TardisData d = new TardisData(id, owner, ed, ep, ef, ip, inf, app, spares);
         d.state = state == null ? TardisState.LANDED : state;
         d.stateTicks = ticks;
         d.targetDim = tdim.orElse(null);
         d.targetPos = tpos.orElse(null);
+        d.throttle = Math.max(0, Math.min(throt, 4));
         return d;
     }));
 
@@ -161,7 +166,7 @@ public final class TardisData {
     }
 
     // ============================================================
-    //                      新增：状态系统
+    //                      状态系统
     // ============================================================
 
     public TardisState state() { return state; }
@@ -193,5 +198,16 @@ public final class TardisData {
     /** 是否已设置目的地。 */
     public boolean hasDestination() {
         return targetDim != null && targetPos != null;
+    }
+
+    // ============================================================
+    //                      油门
+    // ============================================================
+
+    public int throttle() { return throttle; }
+
+    /** 设置油门档位。范围夹取到 0..4。 */
+    public void setThrottle(int value) {
+        this.throttle = Math.max(0, Math.min(value, 4));
     }
 }

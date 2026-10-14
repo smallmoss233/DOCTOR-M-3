@@ -1,5 +1,6 @@
 package doctor_m.network;
 
+import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
@@ -7,8 +8,10 @@ import mosslib.core.api.PayloadRegistrar;
 import mosslib.core.api.ServerHandlers;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.Permissions;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 public final class DMNetwork {
 
@@ -24,10 +27,15 @@ public final class DMNetwork {
     public static final CustomPacketPayload.Type<OpenAppearanceScreenPayload> OPEN_APPEARANCE_SCREEN =
             REG.s2c("open_appearance_screen", OpenAppearanceScreenPayload.CODEC);
 
+    /** 客户端 → 服务端：上报控制台控件的世界 AABB。 */
+    public static final CustomPacketPayload.Type<SyncConsoleControlsPayload> SYNC_CONSOLE_CONTROLS =
+            REG.c2s("sync_console_controls", SyncConsoleControlsPayload.CODEC);
+
     /** 在 common 初始化器里调用一次。 */
     public static void register() {
         REG.commit();
         ServerHandlers.handle(SET_APPEARANCE, DMNetwork::handleSetAppearance);
+        ServerHandlers.handle(SYNC_CONSOLE_CONTROLS, DMNetwork::handleSyncConsoleControls);
     }
 
     // ============================================================
@@ -57,5 +65,17 @@ public final class DMNetwork {
         TardisManager.getRegistry(server).setDirty();
 
         TardisManager.syncDoorAppearance(server, data);
+    }
+
+    private static void handleSyncConsoleControls(SyncConsoleControlsPayload p, ServerPlayer player) {
+        ServerLevel level = (ServerLevel) player.level();
+        BlockEntity be = level.getBlockEntity(p.consolePos());
+
+        if (!(be instanceof TardisConsoleBlockEntity console)) {
+            // 方块可能已被拆、或者客户端发得比方块加载早 —— 静默忽略
+            return;
+        }
+
+        console.applyClientControls(p.entries());
     }
 }

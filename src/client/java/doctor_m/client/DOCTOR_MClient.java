@@ -5,6 +5,7 @@ import doctor_m.client.gui.pip.GuiBedrockModelRenderer;
 import doctor_m.client.network.DMClientNetwork;
 import doctor_m.client.stp.StpClientState;
 import doctor_m.client.tardis.appearance.TardisAppearancePlugin;
+import doctor_m.client.tardis.console.ConsoleControlClient;
 import mosslib.core.bedrock.BedrockCache;
 import doctor_m.client.tardis.console.TardisConsoleLoader;
 import doctor_m.client.tardis.render.TardisConsoleRenderer;
@@ -24,6 +25,11 @@ public class DOCTOR_MClient implements ClientModInitializer {
         BedrockCache.register();
         BedrockDebugCommand.register();
         DMClientNetwork.register();
+        ConsoleControlClient.register();
+
+        net.minecraft.client.renderer.entity.EntityRenderers.register(
+                doctor_m.register.DMEntityTypes.CONSOLE_CONTROL,
+                doctor_m.client.tardis.render.ConsoleControlRenderer::new);
 
         PictureInPictureRendererRegistry.register(ctx -> new GuiBedrockModelRenderer());
 

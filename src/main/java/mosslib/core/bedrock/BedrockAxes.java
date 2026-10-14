@@ -122,7 +122,7 @@ public record BedrockAxes(boolean mirrorGeometry, boolean mirrorAnimation,
      */
     public Vector3f applyAnimationRotation(float rx, float ry, float rz) {
         if (!mirrorAnimation) return new Vector3f(rx, ry, rz);
-        return new Vector3f(rx, -ry, -rz);
+        return new Vector3f(-rx, -ry, rz);
     }
 
     /**
