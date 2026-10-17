@@ -174,6 +174,8 @@ public final class TardisManager {
                                              BlockPos exteriorPos,
                                              Direction exteriorFacing) {
         UUID id = UUID.randomUUID();
+        // 内饰生成前的占位落点：内门要在模板里找到后才会被真正写入，
+        // 找不到则保持这个回退值（0, 64, 0）。
         BlockPos interiorPos = new BlockPos(0, 64, 0);
 
         TardisData data = new TardisData(
@@ -182,37 +184,28 @@ public final class TardisManager {
                 interiorPos, exteriorFacing,
                 List.of()
         );
+        // 门禁：interiorBuilt = false 期间 teleportInto 拒绝进入，
+        // 外门也保持关闭，直到内饰生成完毕（见 TardisInteriorLoader）。
+        data.setInteriorBuilt(false);
         getRegistry(server).put(data);
-        ensureInterior(server, data);
+        ensureInterior(server, data); // 同步生成；完成后 interiorBuilt = true
         return data;
     }
 
+    /**
+     * 确保内饰存在。旧版在这里程序生成房间、缺门时自动补门（自愈机制）
+     * ——现已删除：内饰完全由 NBT 模板负责（见 {@link TardisInteriorLoader}），
+     * 门不在模板里就不该有门。只有 {@code interiorBuilt == false}
+     * （上次生成被中断）才会重新放置模板。
+     */
     public static void ensureInterior(MinecraftServer server, TardisData data) {
         ResourceKey<Level> key = ResourceKey.create(
                 Registries.DIMENSION, DimensionTemplate.dimensionIdFor(data.id()));
         ServerLevel level = DynamicDimensionManager.getOrCreate(server, key);
         if (level == null) return;
 
-        TardisRoomGenerator.generate(level, data);
-
-        BlockPos p = data.interiorPos();
-
-        if (level.getBlockState(p).is(DMBlocks.TARDIS_INTERIOR_DOOR)) {
-            syncDoorAppearance(server, data);
-            return;
-        }
-
-        boolean open = readExteriorOpenOrDefault(server, data, true);
-
-        BlockState lower = DMBlocks.TARDIS_INTERIOR_DOOR.defaultBlockState()
-                .setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.LOWER)
-                .setValue(AbstractTardisDoorBlock.FACING, data.interiorFacing())
-                .setValue(AbstractTardisDoorBlock.OPEN, open);
-        level.setBlock(p, lower, 3);
-        level.setBlock(p.above(),
-                lower.setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
-
-        syncDoorAppearance(server, data);
+        if (data.interiorBuilt()) return; // 已生成，什么都不补
+        TardisInteriorLoader.build(server, level, data);
     }
 
     public static void loadAll(MinecraftServer server) {
@@ -274,6 +267,9 @@ public final class TardisManager {
         MinecraftServer server = player.level().getServer();
         if (server == null) return false;
         if (isGuarded(server, player.getUUID())) return false;
+        // 门禁：内饰还没生成完（interiorBuilt == false）不许进，
+        // 防止玩家落到模板放置一半的维度里。
+        if (!data.interiorBuilt()) return false;
 
         ResourceKey<Level> key = ResourceKey.create(
                 Registries.DIMENSION, DimensionTemplate.dimensionIdFor(data.id()));

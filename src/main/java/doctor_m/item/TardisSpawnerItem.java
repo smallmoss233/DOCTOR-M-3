@@ -22,10 +22,10 @@ import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
  * TARDIS 生成器。
  * <p>右键点击一个方块面：
  * <ol>
- *   <li>在点击面的相邻格生成一台全新 TARDIS（随机 UUID）</li>
- *   <li>创建对应维度</li>
- *   <li>在维度内放置内门</li>
- *   <li>在外部放置外门</li>
+ *   <li>创建全新 TARDIS（随机 UUID）：建维度 → 读内饰 ID → 从
+ *       {@code data/<ns>/structure/<id>.nbt} 放置模板 → 内门绑定</li>
+ *   <li>在外部放置<b>关闭的</b>外门</li>
+ *   <li>内饰生成完毕（{@code interiorBuilt}）后才把门打开</li>
  * </ol>
  * 物品在创造模式不消耗，生存模式一次性消耗。
  */
@@ -58,29 +58,35 @@ public class TardisSpawnerItem extends Item {
 
         Direction facing = ctx.getHorizontalDirection().getOpposite();
 
-        // 1) 创建 TARDIS（UUID + 数据 + 维度 + 内门）
+        // 1) 创建 TARDIS：UUID + 数据 + 维度 + 内饰模板生成 + 内门绑定。
+        //    createNewTardis 内部同步完成整个内饰生成（interiorBuilt 变 true）。
         TardisData data = TardisManager.createNewTardis(server, player.getUUID(),
                 level.dimension(), target, facing);
         if (data == null) return InteractionResult.FAIL;
 
-        // 2) 放置外门
+        // 2) 放置外门 —— 先放【关闭】状态，门禁时序：内饰没建好门就不许开。
         BlockState lower = DMBlocks.TARDIS_EXTERIOR.defaultBlockState()
                 .setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.LOWER)
                 .setValue(AbstractTardisDoorBlock.FACING, facing)
-                .setValue(AbstractTardisDoorBlock.OPEN, true);
+                .setValue(AbstractTardisDoorBlock.OPEN, false);
 
         level.setBlock(target, lower, 3);
         level.setBlock(target.above(),
                 lower.setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
 
-        // ★ 外门 BE 刚创建，写入外观 + TARDIS ID
-        TardisManager.syncDoorAppearance(server, data);
+        // 3) 内饰生成完毕才开门（同步生成下这里必然就绪；将来改成异步
+        //    分帧放置时，这个 if 就是现成的门禁——未就绪则保持关闭）。
+        if (data.interiorBuilt()) {
+            TardisManager.setDoorOpen(server, data, true);
+        } else {
+            TardisManager.syncDoorAppearance(server, data);
+        }
 
-        // 3) 音效
+        // 4) 音效
         level.playSound(null, target, SoundEvents.ENDERMAN_TELEPORT,
                 SoundSource.BLOCKS, 1.0f, 0.8f);
 
-        // 4) 消耗物品
+        // 5) 消耗物品
         if (!player.isCreative()) {
             ctx.getItemInHand().shrink(1);
         }

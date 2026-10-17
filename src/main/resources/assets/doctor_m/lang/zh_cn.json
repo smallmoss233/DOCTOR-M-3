@@ -72,7 +72,7 @@
   "entity.doctor_m.console_control.coord_y": "Y坐标调整",
   "entity.doctor_m.console_control.coord_z": "Z坐标调整",
   "entity.doctor_m.console_control.coord_step": "坐标数值增量",
-  "doctor_m.console.coord_step.actionbar": "§7坐标增量 §6±%s",
+  "doctor_m.console.coord_step.actionbar": "§7坐标增量 ±%s",
   "entity.doctor_m.console_control.lever": "拉杆",
   "entity.doctor_m.console_control.button": "按钮",
   "entity.doctor_m.console_control.mode": "模式旋钮"

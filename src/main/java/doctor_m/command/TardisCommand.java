@@ -202,13 +202,22 @@ public final class TardisCommand {
         TardisData data = TardisManager.createNewTardis(
                 server, player.getUUID(), level.dimension(), target, facing);
 
+        // 外门先放【关闭】——门禁时序：内饰（NBT 模板）没生成完不许开门。
+        // createNewTardis 内部已同步完成模板放置 + 内门绑定（interiorBuilt）。
         BlockState lower = DMBlocks.TARDIS_EXTERIOR.defaultBlockState()
                 .setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.LOWER)
                 .setValue(AbstractTardisDoorBlock.FACING, facing)
-                .setValue(AbstractTardisDoorBlock.OPEN, true);
+                .setValue(AbstractTardisDoorBlock.OPEN, false);
         level.setBlock(target, lower, 3);
         level.setBlock(target.above(),
                 lower.setValue(AbstractTardisDoorBlock.HALF, DoubleBlockHalf.UPPER), 3);
+
+        // 内饰生成完毕才开门（将来改异步分帧放置时，这个 if 就是门禁）。
+        if (data.interiorBuilt()) {
+            TardisManager.setDoorOpen(server, data, true);
+        } else {
+            TardisManager.syncDoorAppearance(server, data);
+        }
 
         UUID id = data.id();
         source.sendSuccess(

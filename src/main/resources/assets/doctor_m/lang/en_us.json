@@ -72,7 +72,7 @@
   "entity.doctor_m.console_control.coord_y": "Y Coordinate",
   "entity.doctor_m.console_control.coord_z": "Z Coordinate",
   "entity.doctor_m.console_control.coord_step": "Coordinate Step",
-  "doctor_m.console.coord_step.actionbar": "§7Coord step §6±%s",
+  "doctor_m.console.coord_step.actionbar": "§7Coord step ±%s",
   "entity.doctor_m.console_control.lever": "Lever",
   "entity.doctor_m.console_control.button": "Button",
   "entity.doctor_m.console_control.mode": "Mode Dial"

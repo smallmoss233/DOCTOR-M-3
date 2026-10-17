@@ -27,6 +27,10 @@ public final class TardisData {
     public static final Identifier DEFAULT_APPEARANCE =
             Identifier.fromNamespaceAndPath("doctor_m", "tt_capsule");
 
+    /** 默认内饰 ID（对应 {@code data/doctor_m/structure/classic_interior.nbt}）。 */
+    public static final Identifier DEFAULT_INTERIOR =
+            Identifier.fromNamespaceAndPath("doctor_m", "classic_interior");
+
     private final UUID id;
     private final UUID owner;
     private ResourceKey<Level> exteriorDim;
@@ -36,6 +40,25 @@ public final class TardisData {
     private Direction interiorFacing;
     private Identifier appearanceId;
     private final List<BlockPos> spareDoors = new ArrayList<>();
+
+    // ============================================================
+    //              新增：内饰模板字段
+    // ============================================================
+
+    /**
+     * 内饰 ID：指向 {@code data/<ns>/structure/<path>.nbt} 结构模板。
+     * 由 {@link TardisInteriorLoader} 在生成时加载放置。
+     */
+    private Identifier interiorId = DEFAULT_INTERIOR;
+
+    /**
+     * 内饰是否已生成完毕。生成流程把外门放到<b>关闭</b>状态，只有这里
+     * 变 {@code true} 后外门才会打开（见物品/指令的生成序列），
+     * {@code TardisManager#teleportInto} 也会拒绝未就绪的进入。
+     * <p>默认 {@code true} 是给<b>旧存档</b>的兼容值——老 TARDIS 的内饰
+     * 早就生成好了；新生成的 TARDIS 会被显式置 {@code false} 再开建。
+     */
+    private boolean interiorBuilt = true;
 
     // ============================================================
     //              新增：状态系统字段
@@ -139,19 +162,28 @@ public final class TardisData {
                     .forGetter(d -> Optional.ofNullable(d.targetPos)),
 
             // ---- 全局控件档位表（key = 控件类型 id，value = 档位 0 基）----
-            // 13 个基础字段 + 这 1 个 = 14，远在 group 的 16 参数上限内。
-            // 旧版临时字段（throttle / control_state）不再读取，开发期格式直接切换。
             Codec.unboundedMap(Codec.STRING, Codec.INT)
                     .optionalFieldOf("control_tiers", Map.of())
-                    .forGetter(TardisData::controlTiers)
+                    .forGetter(TardisData::controlTiers),
+
+            // ---- 内饰模板 ----
+            // 基础 9 + 状态 4 + 档位 1 + 这 2 个 = 16，正好在 group 的 16 参数
+            // 上限。再要加字段请先给 TardisData 分组。
+            Identifier.CODEC.optionalFieldOf("interior_id", DEFAULT_INTERIOR)
+                    .forGetter(TardisData::interiorId),
+            Codec.BOOL.optionalFieldOf("interior_built", true)
+                    .forGetter(TardisData::interiorBuilt)
     ).apply(inst, (id, owner, ed, ep, ef, ip, inf, app, spares,
-                   state, ticks, tdim, tpos, tiers) -> {
+                   state, ticks, tdim, tpos, tiers,
+                   interior, built) -> {
         TardisData d = new TardisData(id, owner, ed, ep, ef, ip, inf, app, spares);
         d.state = state == null ? TardisState.LANDED : state;
         d.stateTicks = ticks;
         d.targetDim = tdim.orElse(null);
         d.targetPos = tpos.orElse(null);
         d.controlTiers.putAll(tiers);
+        d.interiorId = interior == null ? DEFAULT_INTERIOR : interior;
+        d.interiorBuilt = built;
         return d;
     }));
 
@@ -168,6 +200,8 @@ public final class TardisData {
     public Direction interiorFacing()       { return interiorFacing; }
     public Identifier appearanceId()        { return appearanceId; }
     public List<BlockPos> spareDoors()      { return List.copyOf(spareDoors); }
+    public Identifier interiorId()          { return interiorId; }
+    public boolean interiorBuilt()          { return interiorBuilt; }
 
     // ============================================================
     //                      现有 setter
@@ -181,6 +215,16 @@ public final class TardisData {
     }
     public void setAppearanceId(Identifier id) {
         this.appearanceId = id == null ? DEFAULT_APPEARANCE : id;
+    }
+
+    /** 设置内饰模板 ID（下次生成时生效）。 */
+    public void setInteriorId(Identifier id) {
+        this.interiorId = id == null ? DEFAULT_INTERIOR : id;
+    }
+
+    /** 标记内饰生成状态。仅由 {@link TardisInteriorLoader} 写。 */
+    public void setInteriorBuilt(boolean built) {
+        this.interiorBuilt = built;
     }
 
     public void addSpareDoor(BlockPos pos) {
