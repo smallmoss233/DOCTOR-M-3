@@ -27,7 +27,11 @@ public final class TardisData {
     public static final Identifier DEFAULT_APPEARANCE =
             Identifier.fromNamespaceAndPath("doctor_m", "tt_capsule");
 
-    /** 默认内饰 ID（对应 {@code data/doctor_m/structure/classic_interior.nbt}）。 */
+    /**
+     * 默认内饰 ID。实际模板文件在
+     * {@code data/doctor_m/structure/interior/classic_interior.nbt}
+     * （加载器自动加 {@code interior/} 前缀）。
+     */
     public static final Identifier DEFAULT_INTERIOR =
             Identifier.fromNamespaceAndPath("doctor_m", "classic_interior");
 
@@ -46,7 +50,7 @@ public final class TardisData {
     // ============================================================
 
     /**
-     * 内饰 ID：指向 {@code data/<ns>/structure/<path>.nbt} 结构模板。
+     * 内饰 ID：指向 {@code data/<ns>/structure/interior/<path>.nbt} 结构模板。
      * 由 {@link TardisInteriorLoader} 在生成时加载放置。
      */
     private Identifier interiorId = DEFAULT_INTERIOR;
@@ -59,6 +63,35 @@ public final class TardisData {
      * 早就生成好了；新生成的 TARDIS 会被显式置 {@code false} 再开建。
      */
     private boolean interiorBuilt = true;
+
+    /**
+     * 更换中的目标内饰 ID（非 null = 正在更换）。
+     * 由 {@code TardisManager#requestInteriorChange} 写入：此后塔迪斯禁止
+     * 起飞 / 控件锁死 / 拒绝传送进入，玩家从<b>敞开的门</b>走出去；
+     * 内部维度清空的那一刻才反锁并起倒计时，倒计时结束清空旧内饰、
+     * 按<b>首次生成流程</b>重放新模板（见 {@code TardisManager#performInteriorSwap}），
+     * 完成时把这里写进 {@link #interiorId} 并清空。
+     * <p>该字段随存档持久化：中途关服，重启后
+     * {@code TardisManager#ensureInterior} 会接着把更换做完。
+     */
+    private Identifier pendingInteriorId = null;
+
+    /**
+     * 更换时冻结的旧内饰清理区域（min/max，含两端）。
+     * 在 {@code requestInteriorChange} 受理<b>当场</b>按旧内饰 ID 算好存下，
+     * 之后清场只认这里——UI / payload 即使提前把 {@link #interiorId} 改成
+     * 新 ID，也不会清错区域（清成新模板的空区域、旧内饰残留）。
+     * <p>随存档持久化，重启续办时仍然有效。
+     */
+    private BlockPos swapClearMin = null;
+    private BlockPos swapClearMax = null;
+
+    /**
+     * 更换期"反锁后倒计时"（tick）。仅内存、不持久化：
+     * 玩家全部离开的那一刻反锁并从 {@code SWAP_LOCK_DELAY_TICKS} 起跳，
+     * 归零才动工。重启续办时维度必空，直接换（倒计时重置为 0 无碍）。
+     */
+    private int interiorSwapDelay = 0;
 
     // ============================================================
     //              新增：状态系统字段
@@ -138,6 +171,40 @@ public final class TardisData {
     //                       CODEC
     // ============================================================
 
+    /**
+     * 内饰相关字段的嵌套打包，存档里形如
+     * {@code interior: {id, built, pending_id, clear_min, clear_max}}。
+     *
+     * <p>为什么打包：{@code RecordCodecBuilder.group} 最多 16 个参数，
+     * 基础 9 + 状态 4 + 控件档位 1 已占 14，内饰 5 个字段放不下，
+     * 嵌套后整包只占 1 个参数（现共 15）。
+     * <p><b>存档格式变更</b>：此前的顶层 {@code interior_id} / {@code interior_built}
+     * 字段已并入此对象，旧字段会被忽略、按默认值处理（id = 默认内饰、
+     * built = true；pre-alpha 阶段接受）。
+     */
+    public record InteriorState(Identifier interiorId, boolean built, Identifier pendingId,
+                                BlockPos clearMin, BlockPos clearMax) {
+        public static final Codec<InteriorState> CODEC = RecordCodecBuilder.create(i -> i.group(
+                Identifier.CODEC.optionalFieldOf("id", TardisData.DEFAULT_INTERIOR)
+                        .forGetter(InteriorState::interiorId),
+                Codec.BOOL.optionalFieldOf("built", true)
+                        .forGetter(InteriorState::built),
+                Identifier.CODEC.optionalFieldOf("pending_id")
+                        .forGetter(s -> Optional.ofNullable(s.pendingId)),
+                BlockPos.CODEC.optionalFieldOf("clear_min")
+                        .forGetter(s -> Optional.ofNullable(s.clearMin)),
+                BlockPos.CODEC.optionalFieldOf("clear_max")
+                        .forGetter(s -> Optional.ofNullable(s.clearMax))
+        ).apply(i, (id, built, pending, min, max) ->
+                new InteriorState(id, built, pending.orElse(null), min.orElse(null), max.orElse(null))));
+    }
+
+    /** Codec 读取视图：把五个内饰字段打成一个对象。 */
+    public InteriorState interiorState() {
+        return new InteriorState(interiorId, interiorBuilt, pendingInteriorId,
+                swapClearMin, swapClearMax);
+    }
+
     public static final Codec<TardisData> CODEC = RecordCodecBuilder.create(inst -> inst.group(
             UUIDUtil.CODEC.fieldOf("id").forGetter(TardisData::id),
             UUIDUtil.CODEC.optionalFieldOf("owner", null).forGetter(TardisData::owner),
@@ -166,24 +233,23 @@ public final class TardisData {
                     .optionalFieldOf("control_tiers", Map.of())
                     .forGetter(TardisData::controlTiers),
 
-            // ---- 内饰模板 ----
-            // 基础 9 + 状态 4 + 档位 1 + 这 2 个 = 16，正好在 group 的 16 参数
-            // 上限。再要加字段请先给 TardisData 分组。
-            Identifier.CODEC.optionalFieldOf("interior_id", DEFAULT_INTERIOR)
-                    .forGetter(TardisData::interiorId),
-            Codec.BOOL.optionalFieldOf("interior_built", true)
-                    .forGetter(TardisData::interiorBuilt)
+            // ---- 内饰（嵌套打包：id + built + pending_id，见 InteriorState）----
+            InteriorState.CODEC.optionalFieldOf("interior",
+                            new InteriorState(DEFAULT_INTERIOR, true, null, null, null))
+                    .forGetter(TardisData::interiorState)
     ).apply(inst, (id, owner, ed, ep, ef, ip, inf, app, spares,
-                   state, ticks, tdim, tpos, tiers,
-                   interior, built) -> {
+                   state, ticks, tdim, tpos, tiers, is) -> {
         TardisData d = new TardisData(id, owner, ed, ep, ef, ip, inf, app, spares);
         d.state = state == null ? TardisState.LANDED : state;
         d.stateTicks = ticks;
         d.targetDim = tdim.orElse(null);
         d.targetPos = tpos.orElse(null);
         d.controlTiers.putAll(tiers);
-        d.interiorId = interior == null ? DEFAULT_INTERIOR : interior;
-        d.interiorBuilt = built;
+        d.interiorId = is.interiorId() == null ? DEFAULT_INTERIOR : is.interiorId();
+        d.interiorBuilt = is.built();
+        d.pendingInteriorId = is.pendingId();
+        d.swapClearMin = is.clearMin();
+        d.swapClearMax = is.clearMax();
         return d;
     }));
 
@@ -202,6 +268,17 @@ public final class TardisData {
     public List<BlockPos> spareDoors()      { return List.copyOf(spareDoors); }
     public Identifier interiorId()          { return interiorId; }
     public boolean interiorBuilt()          { return interiorBuilt; }
+    /** 更换中的目标内饰 ID；未在更换时为 null。 */
+    public Identifier pendingInteriorId()   { return pendingInteriorId; }
+    /** 是否正在更换内饰（禁飞 / 控件锁死 / 拒绝传送进入；门在玩家离开前保持敞开）。 */
+    public boolean isInteriorChanging()     { return pendingInteriorId != null; }
+    /** 更换时冻结的旧内饰清理区域下角（未在更换时为 null）。 */
+    public BlockPos swapClearMin()          { return swapClearMin; }
+    /** 更换时冻结的旧内饰清理区域上角（未在更换时为 null）。 */
+    public BlockPos swapClearMax()          { return swapClearMax; }
+    /** 反锁后倒计时（tick），仅由 TardisManager 更换期 tick 读写。 */
+    public int interiorSwapDelay()          { return interiorSwapDelay; }
+    public void setInteriorSwapDelay(int ticks) { this.interiorSwapDelay = Math.max(0, ticks); }
 
     // ============================================================
     //                      现有 setter
@@ -227,6 +304,27 @@ public final class TardisData {
         this.interiorBuilt = built;
     }
 
+    /**
+     * 进入"更换中"：记住目标内饰 ID，并<b>当场冻结</b>旧内饰的清理区域
+     * （此后 interiorId 被谁改都不影响清场范围）。起飞/控件/传送的锁死
+     * 效果由各处检查 {@link #isInteriorChanging()} 实现；门此时保持敞开，
+     * 反锁发生在内部维度清空之后（见 {@code TardisManager#tickInteriorChange}）。
+     */
+    public void beginInteriorChange(Identifier newId, BlockPos clearMin, BlockPos clearMax) {
+        this.pendingInteriorId = newId;
+        this.swapClearMin = clearMin;
+        this.swapClearMax = clearMax;
+        this.interiorSwapDelay = 0;
+    }
+
+    /** 结束"更换中"（由 {@code TardisManager#performInteriorSwap} 在提交新 ID 后调用）。 */
+    public void endInteriorChange() {
+        this.pendingInteriorId = null;
+        this.swapClearMin = null;
+        this.swapClearMax = null;
+        this.interiorSwapDelay = 0;
+    }
+
     public void addSpareDoor(BlockPos pos) {
         if (!spareDoors.contains(pos)) spareDoors.add(pos);
     }
@@ -234,6 +332,8 @@ public final class TardisData {
     public BlockPos popSpareDoor() {
         return spareDoors.isEmpty() ? null : spareDoors.remove(0);
     }
+    /** 清空备用门（更换内饰时旧门随模板一起被清掉）。 */
+    public void clearSpareDoors() { spareDoors.clear(); }
 
     // ============================================================
     //                      状态系统

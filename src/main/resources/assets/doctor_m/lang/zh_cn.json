@@ -1,5 +1,6 @@
 {
   "itemGroup.doctor_m.main": "DOCTOR M",
+
   "item.doctor_m.tardis_spawner": "塔迪斯",
   "item.doctor_m.tardis_interior_door": "内门",
   "item.doctor_m.tardis_console": "塔迪斯控制台",
@@ -9,24 +10,42 @@
   "block.doctor_m.tardis_exterior": "塔迪斯外部",
   "block.doctor_m.tardis_console": "塔迪斯控制台",
 
+  "entity.doctor_m.console_control": "控制台控件",
+  "entity.doctor_m.console_control.throttle": "油门",
+  "entity.doctor_m.console_control.handbrake": "手闸",
+  "entity.doctor_m.console_control.parking_brake": "驻车制动",
+  "entity.doctor_m.console_control.coord_x": "X坐标调整",
+  "entity.doctor_m.console_control.coord_y": "Y坐标调整",
+  "entity.doctor_m.console_control.coord_z": "Z坐标调整",
+  "entity.doctor_m.console_control.coord_step": "坐标数值增量",
+  "entity.doctor_m.console_control.lever": "拉杆",
+  "entity.doctor_m.console_control.button": "按钮",
+  "entity.doctor_m.console_control.mode": "模式旋钮",
+  "doctor_m.console.coord_step.actionbar": "§7坐标增量 ±%s",
+
   "doctor_m.command.error.invalid_id": "§c[DM] 无效的 UUID：§b%s",
+
   "doctor_m.command.tardis.create.success": "§a[DM] 已创建塔迪斯 §b%s",
   "doctor_m.command.tardis.create.no_space": "§c[DM] 此处空间不足，无法放置塔迪斯外门",
   "doctor_m.command.tardis.create.occupied": "§c[DM] 该位置已被其他塔迪斯占用",
   "doctor_m.command.tardis.create.bad_facing": "§c[DM] 请面向水平方向",
+
   "doctor_m.command.tardis.tp.success": "§a[DM] 传送至塔迪斯 §b%s",
   "doctor_m.command.tardis.tp.fail": "§c[DM] 无法进入塔迪斯",
   "doctor_m.command.tardis.no_own": "§c[DM] 你还没有塔迪斯",
   "doctor_m.command.tardis.not_found": "§c[DM] 找不到塔迪斯：§b%s",
   "doctor_m.command.tardis.delete.success": "§a[DM] 已删除塔迪斯 §b%s§a（含维度存档）",
+
   "doctor_m.command.tardis.door.opened": "§a[DM] 塔迪斯 §b%s§a：门已打开",
   "doctor_m.command.tardis.door.closed": "§a[DM] 塔迪斯 §b%s§a：门已关闭",
+
   "doctor_m.command.tardis.info.header": "§7[DM] === 塔迪斯 §b%s§7 ===",
   "doctor_m.command.tardis.info.owner": "§7  拥有者：§f%s",
   "doctor_m.command.tardis.info.exterior": "§7  外门：§b%s§7 @ §f%s§7 朝向 §f%s",
   "doctor_m.command.tardis.info.interior": "§7  内门：§f%s§7 朝向 §f%s",
   "doctor_m.command.tardis.info.spares": "§7  备用门：§f%d",
   "doctor_m.command.tardis.info.state": "§7  状态：§f%s",
+
   "doctor_m.command.tardis.list.empty": "§7[DM] 没有已注册的塔迪斯",
   "doctor_m.command.tardis.list.header": "§7[DM] 塔迪斯列表（§b%s§7）：",
   "doctor_m.command.tardis.list.entry": "  §b%s§r  外门 §f%s§7@§f%s§r  备用门 %s",
@@ -39,6 +58,14 @@
   "doctor_m.command.tardis.fly.fail": "§c[DM] 起飞失败",
   "doctor_m.command.tardis.fly.success": "§a[DM] 塔迪斯正在起飞……",
   "doctor_m.command.tardis.fly.success_no_dest": "§a[DM] 塔迪斯原地起飞（未设目的地）",
+
+  "doctor_m.command.tardis.nearby.none": "附近没有塔迪斯。",
+
+  "doctor_m.command.client.appearance.list.empty": "[DM] 无可用外观",
+  "doctor_m.command.client.appearance.list.header": "[DM] 可用外观（%s）：",
+  "doctor_m.command.client.appearance.list.entry": "  %s  %s",
+  "doctor_m.command.tardis.appearance.no_target": "附近没有塔迪斯。",
+  "doctor_m.command.tardis.appearance.opened": "打开外观选择：%s",
 
   "doctor_m.command.debug.list.empty": "§7[DM] 无动态维度",
   "doctor_m.command.debug.list.header": "§7[DM] 共 §b%d§7 个动态维度：",
@@ -53,27 +80,28 @@
   "doctor_m.command.debug.tpd.fail": "§c[DM] 无法进入维度：§b%s",
   "doctor_m.command.debug.tpd.invalid": "§c[DM] 非法的维度 ID：§b%s",
 
-  "doctor_m.command.client.appearance.list.empty": "[DM] 无可用外观",
-  "doctor_m.command.client.appearance.list.header": "[DM] 可用外观（%s）：",
-  "doctor_m.command.client.appearance.list.entry": "  %s  %s",
-  "doctor_m.command.tardis.appearance.no_target": "附近没有 TARDIS。",
-  "doctor_m.command.tardis.nearby.none": "附近没有 TARDIS。",
-  "doctor_m.command.tardis.appearance.opened": "打开外观选择：%s",
+  "doctor_m.screen.interior.title": "塔迪斯内饰选择",
+  "doctor_m.screen.interior.apply": "应用",
+  "doctor_m.screen.interior.empty": "没有可用的内饰",
+  "doctor_m.screen.interior.unknown": "未知",
+  "doctor_m.screen.interior.current": "当前内饰：",
+  "doctor_m.screen.interior.applied": "  (已应用)",
+  "doctor_m.screen.interior.switch": "切换内饰",
+  "doctor_m.screen.interior.id": "ID: %s",
+  "doctor_m.screen.interior.texture_unloaded": "贴图未加载\n请按 F3+T 重载资源",
+  "doctor_m.screen.interior.no_preview": "暂无预览图",
+  "doctor_m.screen.interior.tips": "提示：",
+  "doctor_m.screen.interior.tip1": "1. 更换内饰需要离开塔迪斯内部。",
+  "doctor_m.screen.interior.tip2": "2. 更换期间塔迪斯将被锁定，无法起飞。",
+  "doctor_m.screen.interior.tip3": "3. 应用后将自动清理旧内饰并放置新内饰。",
+
+  "doctor_m.interior.doctor_m.classic_interior": "测试控制室",
+  "doctor_m.interior.doctor_m.classic_interior_2": "测试控制室2",
 
   "message.doctor_m.tardis.already_flying": "§7[DM] 塔迪斯已在飞行中，潜行右键降落",
   "message.doctor_m.tardis.busy": "§7[DM] 塔迪斯正在移动中",
   "message.doctor_m.tardis.door_locked": "§7[DM] 塔迪斯飞行中，门已锁定",
 
-  "entity.doctor_m.console_control": "控制台控件",
-  "entity.doctor_m.console_control.throttle": "油门",
-  "entity.doctor_m.console_control.handbrake": "手闸",
-  "entity.doctor_m.console_control.parking_brake": "驻车制动",
-  "entity.doctor_m.console_control.coord_x": "X坐标调整",
-  "entity.doctor_m.console_control.coord_y": "Y坐标调整",
-  "entity.doctor_m.console_control.coord_z": "Z坐标调整",
-  "entity.doctor_m.console_control.coord_step": "坐标数值增量",
-  "doctor_m.console.coord_step.actionbar": "§7坐标增量 ±%s",
-  "entity.doctor_m.console_control.lever": "拉杆",
-  "entity.doctor_m.console_control.button": "按钮",
-  "entity.doctor_m.console_control.mode": "模式旋钮"
+  "doctor_m.tardis.interior.changing": "塔迪斯正在更换内饰，请离开塔迪斯内部",
+  "doctor_m.tardis.interior.completed": "塔迪斯内饰更换完成"
 }

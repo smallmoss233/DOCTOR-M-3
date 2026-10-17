@@ -1,5 +1,6 @@
 {
   "itemGroup.doctor_m.main": "DOCTOR M",
+
   "item.doctor_m.tardis_spawner": "TARDIS",
   "item.doctor_m.tardis_interior_door": "Interior Door",
   "item.doctor_m.tardis_console": "TARDIS Console",
@@ -9,24 +10,42 @@
   "block.doctor_m.tardis_exterior": "TARDIS Exterior",
   "block.doctor_m.tardis_console": "TARDIS Console",
 
+  "entity.doctor_m.console_control": "Console Control",
+  "entity.doctor_m.console_control.throttle": "Throttle",
+  "entity.doctor_m.console_control.handbrake": "Handbrake",
+  "entity.doctor_m.console_control.parking_brake": "Parking Brake",
+  "entity.doctor_m.console_control.coord_x": "X Coordinate",
+  "entity.doctor_m.console_control.coord_y": "Y Coordinate",
+  "entity.doctor_m.console_control.coord_z": "Z Coordinate",
+  "entity.doctor_m.console_control.coord_step": "Coordinate Step",
+  "entity.doctor_m.console_control.lever": "Lever",
+  "entity.doctor_m.console_control.button": "Button",
+  "entity.doctor_m.console_control.mode": "Mode Dial",
+  "doctor_m.console.coord_step.actionbar": "§7Coord step ±%s",
+
   "doctor_m.command.error.invalid_id": "§c[DM] Invalid UUID: §b%s",
+
   "doctor_m.command.tardis.create.success": "§a[DM] TARDIS created: §b%s",
   "doctor_m.command.tardis.create.no_space": "§c[DM] Not enough space to place the TARDIS door",
   "doctor_m.command.tardis.create.occupied": "§c[DM] Another TARDIS already occupies this spot",
   "doctor_m.command.tardis.create.bad_facing": "§c[DM] Aim at a horizontal direction",
+
   "doctor_m.command.tardis.tp.success": "§a[DM] Entered TARDIS §b%s",
   "doctor_m.command.tardis.tp.fail": "§c[DM] Could not enter TARDIS",
   "doctor_m.command.tardis.no_own": "§c[DM] You don't own a TARDIS",
   "doctor_m.command.tardis.not_found": "§c[DM] TARDIS not found: §b%s",
   "doctor_m.command.tardis.delete.success": "§a[DM] Deleted TARDIS §b%s§a (including its dimension)",
+
   "doctor_m.command.tardis.door.opened": "§a[DM] TARDIS §b%s§a: door opened",
   "doctor_m.command.tardis.door.closed": "§a[DM] TARDIS §b%s§a: door closed",
+
   "doctor_m.command.tardis.info.header": "§7[DM] === TARDIS §b%s§7 ===",
   "doctor_m.command.tardis.info.owner": "§7  Owner: §f%s",
   "doctor_m.command.tardis.info.exterior": "§7  Exterior: §b%s§7 @ §f%s§7 facing §f%s",
   "doctor_m.command.tardis.info.interior": "§7  Interior: §f%s§7 facing §f%s",
   "doctor_m.command.tardis.info.spares": "§7  Spare doors: §f%d",
   "doctor_m.command.tardis.info.state": "§7  State: §f%s",
+
   "doctor_m.command.tardis.list.empty": "§7[DM] No TARDIS registered",
   "doctor_m.command.tardis.list.header": "§7[DM] TARDIS list (§b%s§7):",
   "doctor_m.command.tardis.list.entry": "  §b%s§r  exterior §f%s§7@§f%s§r  spares %s",
@@ -39,6 +58,14 @@
   "doctor_m.command.tardis.fly.fail": "§c[DM] Takeoff failed",
   "doctor_m.command.tardis.fly.success": "§a[DM] TARDIS is taking off...",
   "doctor_m.command.tardis.fly.success_no_dest": "§a[DM] TARDIS taking off in place (no destination set)",
+
+  "doctor_m.command.tardis.nearby.none": "No TARDIS nearby.",
+
+  "doctor_m.command.client.appearance.list.empty": "[DM] No appearances available.",
+  "doctor_m.command.client.appearance.list.header": "[DM] Available appearances (%s):",
+  "doctor_m.command.client.appearance.list.entry": "  %s  %s",
+  "doctor_m.command.tardis.appearance.no_target": "No TARDIS nearby.",
+  "doctor_m.command.tardis.appearance.opened": "Opening appearance selector: %s",
 
   "doctor_m.command.debug.list.empty": "§7[DM] No dynamic dimensions",
   "doctor_m.command.debug.list.header": "§7[DM] Dynamic dimensions (§b%d§7):",
@@ -53,27 +80,28 @@
   "doctor_m.command.debug.tpd.fail": "§c[DM] Cannot enter dimension: §b%s",
   "doctor_m.command.debug.tpd.invalid": "§c[DM] Invalid dimension ID: §b%s",
 
-  "doctor_m.command.client.appearance.list.empty": "[DM] No appearances available.",
-  "doctor_m.command.client.appearance.list.header": "[DM] Available appearances (%s):",
-  "doctor_m.command.client.appearance.list.entry": "  %s  %s",
-  "doctor_m.command.tardis.appearance.no_target": "No TARDIS nearby.",
-  "doctor_m.command.tardis.nearby.none": "No TARDIS nearby.",
-  "doctor_m.command.tardis.appearance.opened": "Opening appearance selector: %s",
+  "doctor_m.screen.interior.title": "TARDIS Interior Selection",
+  "doctor_m.screen.interior.apply": "Apply",
+  "doctor_m.screen.interior.empty": "No interiors available",
+  "doctor_m.screen.interior.unknown": "Unknown",
+  "doctor_m.screen.interior.current": "Current Interior: ",
+  "doctor_m.screen.interior.applied": "  (Applied)",
+  "doctor_m.screen.interior.switch": "Switch Interior",
+  "doctor_m.screen.interior.id": "ID: %s",
+  "doctor_m.screen.interior.texture_unloaded": "Texture Unloaded\nPress F3+T to reload resources",
+  "doctor_m.screen.interior.no_preview": "No Preview",
+  "doctor_m.screen.interior.tips": "Tips:",
+  "doctor_m.screen.interior.tip1": "1. You must leave the TARDIS interior to change.",
+  "doctor_m.screen.interior.tip2": "2. TARDIS will be locked and cannot take off during the change.",
+  "doctor_m.screen.interior.tip3": "3. Old interior will be cleared and the new one will be placed.",
 
-  "message.doctor_m.tardis.already_flying": "§7[DM] TARDIS is already flying. Sneak-right-click to land.",
+  "doctor_m.interior.doctor_m.classic_interior": "Test Control Room",
+  "doctor_m.interior.doctor_m.classic_interior_2": "Test Control Room 2",
+
+  "message.doctor_m.tardis.already_flying": "§7[DM] TARDIS is already flying. Sneak-right-click to land",
   "message.doctor_m.tardis.busy": "§7[DM] TARDIS is moving",
   "message.doctor_m.tardis.door_locked": "§7[DM] TARDIS is flying, doors are locked",
 
-  "entity.doctor_m.console_control": "Console Control",
-  "entity.doctor_m.console_control.throttle": "Throttle",
-  "entity.doctor_m.console_control.handbrake": "Handbrake",
-  "entity.doctor_m.console_control.parking_brake": "Parking Brake",
-  "entity.doctor_m.console_control.coord_x": "X Coordinate",
-  "entity.doctor_m.console_control.coord_y": "Y Coordinate",
-  "entity.doctor_m.console_control.coord_z": "Z Coordinate",
-  "entity.doctor_m.console_control.coord_step": "Coordinate Step",
-  "doctor_m.console.coord_step.actionbar": "§7Coord step ±%s",
-  "entity.doctor_m.console_control.lever": "Lever",
-  "entity.doctor_m.console_control.button": "Button",
-  "entity.doctor_m.console_control.mode": "Mode Dial"
+  "doctor_m.tardis.interior.changing": "TARDIS is changing interior, please leave the interior",
+  "doctor_m.tardis.interior.completed": "TARDIS interior change completed"
 }

@@ -30,7 +30,10 @@
 - **真出入口唯一** —— `TardisData.interiorPos` 是唯一"真门"
 - **玩家手动放置的内门** —— 在 TARDIS 维度内自动登记为备用门，不响应右键 / 传送
 - **真门被破坏** —— 最早登记的备用门自动升格为真门
-- **无备用门时** —— 不再自动补门（自愈机制已随程序生成内饰一起移除）
+- **真门自愈** —— 每次内门放置 / 服务器启动都复查真门存活：真门被 Axiom、
+  `/fill` 等替换或删除时，刚放置的内门（含**原位补放**）或存活的备用门
+  自动晋升为真门并补绑门 BE；失效的备用门条目一并清理
+- **无备用门且真门被破坏** —— 无法凭空补门，等待玩家重新放置内门即可晋升
 - **非法位置放置** —— 非 TARDIS 维度里放的内门会立刻被拆掉并提示
 
 ### 🎨 TARDIS 生成与内饰
@@ -47,6 +50,28 @@
       传送被拒绝；旧存档默认视为已生成
     - **没有自愈** —— 模板里没有内门就落点回退 (0, 64, 0)，不再自动补门；
       生成被中断的 TARDIS（`interior_built = false`）下次加载时自动重放模板
+    - **做新内饰** —— 结构方块 SAVE 导出 `.nbt`，放进数据包
+      `data/<ns>/structure/interior/`，模板里放一个内门方块（`TARDIS_INTERIOR_DOOR`
+      下半块）即可；可选资源：预览图 `textures/gui/interior_preview/<path>.png`、
+      名称翻译键 `doctor_m.interior.<ns>.<path>`（换了会被更换 UI 列举）
+- **更换内饰（全链路就绪：列表 / 选择 UI / 网络包 / 后端托管）**：
+    - **内饰列表** —— `TardisInteriorRegistry#getAvailableInteriors` 扫描
+      `StructureTemplateManager` 里 `interior/` 前缀的模板，还原成逻辑 ID 供
+      UI 列举——数据包里放个模板就自动上榜，无需注册
+    - **选择界面** —— `TardisInteriorScreen`（客户端）：左右切换预览，预览图取
+      `textures/gui/interior_preview/<path>.png`（资源缺失时显示占位提示）；
+      名称用翻译键 `doctor_m.interior.<ns>.<path>`（未定义时回退显示路径）；
+      点击"应用"经 `SetTardisInteriorPayload(tardisId, interiorId)` 发往服务端
+    - **后端托管** —— `TardisManager#requestInteriorChange` 校验通过后
+      **门保持敞开**，只锁起飞 / 油门控件 / 传送，并提示塔迪斯内的玩家离开
+      （翻译键 `doctor_m.tardis.interior.changing`）；全员离开的那一刻才反锁，
+      至少 2 秒后按**请求时冻结的清理区域**清空旧内饰（含控件实体与备用门
+      登记）、按**首次生成流程**重放新模板，完成后解锁开门并通知 owner
+      （翻译键 `doctor_m.tardis.interior.completed`）；中途关服会在重启时续办
+    - **冻结清理区域** —— 受理当场按**旧**内饰 ID 算好 min/max 存进 `TardisData`
+      （持久化），之后 `interiorId` 被谁改都不影响清场——避免"按新 ID 清了
+      新模板的空区域、旧内饰原封不动"的残留事故；
+      状态查询见 `TardisData#isInteriorChanging` / `#pendingInteriorId`
 - **外门不生成物品**（`@NoItem`）—— 保证 TARDIS 只能通过 spawner 或命令创建
 - **内门生成物品** —— 玩家可在 TARDIS 内手动放置（自动进备用门列表）
 
@@ -176,7 +201,8 @@ DM3 依赖 MossLib 的以下模块：
 
 **Pre-Alpha** —— 动态维度 + TARDIS 门 / 传送 / 状态管理 + 基岩版模型渲染与骨骼
 动画已跑通；控制台与控件系统（外观 JSON、骨骼识别、全局档位、动画对位）已落地；
-内饰已切换为 NBT 结构模板加载（首发 `classic_interior`），生成完毕前外门保持关闭。
+内饰已切换为 NBT 结构模板加载（首发 `classic_interior`），生成完毕前外门保持关闭；
+内饰更换全链路（模板列表 / 选择界面 / 网络包 / 后端托管）已打通。
 
 ---
 

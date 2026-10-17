@@ -53,7 +53,7 @@ public final class ThrottleHandler implements ControlBehavior {
 
     @Override
     public boolean canInteract(ServerPlayer player, ConsoleControlEntity entity, TardisData data) {
-        // 降落过程中锁死控件，其余状态允许操作。
-        return data.state() != TardisState.LANDING;
+        // 降落过程中 / 更换内饰期间（禁止起飞）锁死控件，其余状态允许操作。
+        return data.state() != TardisState.LANDING && !data.isInteriorChanging();
     }
 }

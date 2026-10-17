@@ -36,6 +36,34 @@ public final class DMNetwork {
         REG.commit();
         ServerHandlers.handle(SET_APPEARANCE, DMNetwork::handleSetAppearance);
         ServerHandlers.handle(SYNC_CONSOLE_CONTROLS, DMNetwork::handleSyncConsoleControls);
+        ServerHandlers.handle(SET_INTERIOR, DMNetwork::handleSetInterior);
+    }
+
+    /** 服务端指令 → S2C 打开内饰 UI。 */
+    public static final CustomPacketPayload.Type<OpenInteriorScreenPayload> OPEN_INTERIOR_SCREEN =
+            REG.s2c("open_interior_screen", OpenInteriorScreenPayload.CODEC);
+
+    /** UI 里点"应用" → C2S 提交内饰。 */
+    public static final CustomPacketPayload.Type<SetTardisInteriorPayload> SET_INTERIOR =
+            REG.c2s("set_interior", SetTardisInteriorPayload.CODEC);
+
+    private static void handleSetInterior(SetTardisInteriorPayload p, ServerPlayer player) {
+        MinecraftServer server = player.level().getServer();
+        if (server == null) return;
+
+        TardisData data = TardisManager.get(server, p.tardisId());
+        if (data == null) return;
+
+        boolean isOwner = player.getUUID().equals(data.owner());
+        boolean isOp = player.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER);
+        if (!isOwner && !isOp) return;
+
+        // 调用 GLM 的底层接口
+        boolean success = TardisManager.requestInteriorChange(server, data, p.interiorId());
+        if (!success) {
+            // 失败反馈（可能是在飞行中、已经有更新在进行等）
+            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("无法更换内饰：条件不满足（可能正在飞行或模板不存在）").withStyle(net.minecraft.ChatFormatting.RED));
+        }
     }
 
     // ============================================================

@@ -9,8 +9,10 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.network.OpenAppearanceScreenPayload;
+import doctor_m.network.OpenInteriorScreenPayload;
 import doctor_m.register.DMBlocks;
 import doctor_m.tardis.TardisData;
+import doctor_m.tardis.TardisInteriorRegistry;
 import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.TardisState;
 import mosslib.core.dimension.DimensionDebug;
@@ -115,6 +117,13 @@ public final class TardisCommand {
                                 .then(Commands.argument("id", StringArgumentType.word())
                                         .suggests(TARDIS_IDS)
                                         .executes(TardisCommand::openAppearanceById)))
+
+                        // ---------- interior [id] ----------
+                        .then(Commands.literal("interior")
+                                .executes(TardisCommand::openInteriorNearby)
+                                .then(Commands.argument("id", StringArgumentType.word())
+                                        .suggests(TARDIS_IDS)
+                                        .executes(TardisCommand::openInteriorById)))
 
                         // ---------- dest <x> <y> <z> [dim]  （就近） ----------
                         // ---------- dest <id> <x> <y> <z> [dim]  （指定） ----------
@@ -774,5 +783,40 @@ public final class TardisCommand {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // ================================================================
+    //                      interior
+    // ================================================================
+
+    private static int openInteriorNearby(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = TardisManager.findContextTardis(source.getServer(), player);
+        if (data == null) {
+            source.sendFailure(Component.translatable("doctor_m.command.tardis.nearby.none"));
+            return 0;
+        }
+        return sendOpenInterior(source, player, data);
+    }
+
+    private static int openInteriorById(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player = source.getPlayerOrException();
+        TardisData data = resolveById(source, StringArgumentType.getString(ctx, "id"));
+        if (data == null) return 0;
+        return sendOpenInterior(source, player, data);
+    }
+
+    private static int sendOpenInterior(CommandSourceStack source, ServerPlayer player, TardisData data) {
+        var list = TardisInteriorRegistry.getAvailableInteriors(source.getServer());
+        ServerPlayNetworking.send(
+                player,
+                new OpenInteriorScreenPayload(data.id(), data.interiorId(), list)
+        );
+        source.sendSuccess(
+                () -> Component.literal("打开内饰选择界面"),
+                false);
+        return 1;
     }
 }
