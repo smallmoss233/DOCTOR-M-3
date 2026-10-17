@@ -4,6 +4,7 @@ import doctor_m.tardis.TardisData;
 import doctor_m.tardis.console.ClickType;
 import doctor_m.tardis.console.ConsoleControlEntity;
 import doctor_m.tardis.console.ControlBehavior;
+import doctor_m.tardis.console.ControlTypes;
 import net.minecraft.server.level.ServerLevel;
 
 /**
@@ -16,8 +17,10 @@ import net.minecraft.server.level.ServerLevel;
  *   档位 2 → 100     档位 5 → 100 000（上限）
  * </pre>
  *
- * <p>增量存在 {@link TardisData#coordStep()}（随 TARDIS 持久化），
- * 而不是控件实体上 —— 这样坐标控件不需要反查实体，重生成控件后设置也不丢。
+ * <p>增量是 {@code coord_step} 控件档位的派生值：档位存在
+ * {@link TardisData} 的全局档位表里（key = {@code "coord_step"}，随 TARDIS
+ * 持久化），{@link TardisData#coordStep()} 查 {@link #STEP_PER_TIER} 得出实际格数
+ * —— 这样坐标控件不需要反查实体，重生成控件后设置也不丢。
  */
 public final class IncrementBehavior implements ControlBehavior {
 
@@ -28,6 +31,6 @@ public final class IncrementBehavior implements ControlBehavior {
     public void onTierChanged(ServerLevel level, TardisData data, ConsoleControlEntity entity,
                               ClickType click, int oldTier, int newTier) {
         int tier = Math.max(0, Math.min(newTier, STEP_PER_TIER.length - 1));
-        data.setCoordStep(STEP_PER_TIER[tier]);
+        data.setTier(ControlTypes.COORD_STEP.id(), tier);
     }
 }

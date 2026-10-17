@@ -10,8 +10,14 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
+import doctor_m.tardis.console.ControlType;
+import doctor_m.tardis.console.ControlTypes;
+import doctor_m.tardis.console.handler.IncrementBehavior;
+
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -43,11 +49,23 @@ public final class TardisData {
     private ResourceKey<Level> targetDim = null;
     /** 目的地坐标（未设置时为 null）。 */
     private BlockPos targetPos = null;
-    /** 当前油门档位（0..4）。0 = 熄火，正数 = 飞行中该档速度。 */
-    private int throttle = 0;
-    /** 控件状态。独立成 record 是因为 RecordCodecBuilder.group 最多 16 个字段，
-     *  14 个基础字段 + 控件状态合 1 个 = 15 个，留有余量。 */
-    private ControlState controlState = ControlState.DEFAULT;
+
+    /**
+     * 全局控件档位表：控件类型 id → 当前档位（0 基）。
+     *
+     * <h2>一份档位，全体控制台共用</h2>
+     * 这是所有控件档位的<b>唯一权威来源</b>。一个 TARDIS 里的每台控制台
+     * （以及其上的控件实体）都只是这份表的"视图"：
+     * <ul>
+     *   <li>新放置的控制台生成控件实体时读这张表对位动画（见
+     *       {@code ConsoleControlEntity#syncFromTardis}）</li>
+     *   <li>任何一台控制台上的操作经 {@code TardisManager#setControlTier}
+     *       写这里，并广播到该 TARDIS 内所有同类型控件实体</li>
+     * </ul>
+     * key 是类型 id（如 {@code "throttle"}），因此<b>同类型的多个控件实例共享档位</b>
+     * ——两台控制台的油门永远指向同一格。想要各自独立的功能，请用不同类型。
+     */
+    private final Map<String, Integer> controlTiers = new LinkedHashMap<>();
 
     // ============================================================
     //                      兼容构造器
@@ -119,45 +137,23 @@ public final class TardisData {
                     .forGetter(d -> Optional.ofNullable(d.targetDim)),
             BlockPos.CODEC.optionalFieldOf("target_pos")
                     .forGetter(d -> Optional.ofNullable(d.targetPos)),
-            Codec.INT.optionalFieldOf("throttle", 0)
-                    .forGetter(TardisData::throttle),
 
-            // ---- 控件状态（合一个 record，绕开 group 的 16 参数上限）----
-            ControlState.CODEC.optionalFieldOf("control_state", ControlState.DEFAULT)
-                    .forGetter(TardisData::controlState)
+            // ---- 全局控件档位表（key = 控件类型 id，value = 档位 0 基）----
+            // 13 个基础字段 + 这 1 个 = 14，远在 group 的 16 参数上限内。
+            // 旧版临时字段（throttle / control_state）不再读取，开发期格式直接切换。
+            Codec.unboundedMap(Codec.STRING, Codec.INT)
+                    .optionalFieldOf("control_tiers", Map.of())
+                    .forGetter(TardisData::controlTiers)
     ).apply(inst, (id, owner, ed, ep, ef, ip, inf, app, spares,
-                   state, ticks, tdim, tpos, throt, ctrl) -> {
+                   state, ticks, tdim, tpos, tiers) -> {
         TardisData d = new TardisData(id, owner, ed, ep, ef, ip, inf, app, spares);
         d.state = state == null ? TardisState.LANDED : state;
         d.stateTicks = ticks;
         d.targetDim = tdim.orElse(null);
         d.targetPos = tpos.orElse(null);
-        d.throttle = Math.max(0, Math.min(throt, 4));
-        d.controlState = ctrl.sanitized();
+        d.controlTiers.putAll(tiers);
         return d;
     }));
-
-    /**
-     * 控件相关状态（手刹 / 驻车制动 / 坐标增量）。
-     * 旧存档没有 {@code control_state} 字段时整体取 {@link #DEFAULT}。
-     */
-    public record ControlState(int handbrake, boolean parkingBrake, int coordStep) {
-        public static final ControlState DEFAULT = new ControlState(0, false, 1);
-
-        public static final Codec<ControlState> CODEC = RecordCodecBuilder.create(inst -> inst.group(
-                Codec.INT.optionalFieldOf("handbrake", 0).forGetter(ControlState::handbrake),
-                Codec.BOOL.optionalFieldOf("parking_brake", false).forGetter(ControlState::parkingBrake),
-                Codec.INT.optionalFieldOf("coord_step", 1).forGetter(ControlState::coordStep)
-        ).apply(inst, ControlState::new));
-
-        /** 越界值夹取回合法范围。 */
-        ControlState sanitized() {
-            return new ControlState(
-                    Math.max(0, Math.min(handbrake, 3)),
-                    parkingBrake,
-                    Math.max(1, Math.min(coordStep, 100_000)));
-        }
-    }
 
     // ============================================================
     //                      现有 getter
@@ -231,42 +227,66 @@ public final class TardisData {
     }
 
     // ============================================================
-    //                      油门
+    //                  全局控件档位表
     // ============================================================
+    // 唯一权威来源。业务层原有的具名 API（throttle / handbrake / ...）
+    // 全部变成这张表的具名读写视图，签名不变，调用方无需改动。
 
-    public int throttle() { return throttle; }
+    /** 只读视图（供 CODEC 序列化和外部遍历用）。 */
+    public Map<String, Integer> controlTiers() {
+        return Map.copyOf(controlTiers);
+    }
+
+    /** 读某类型控件的当前档位；未记录过返回 0。 */
+    public int tier(String typeId) {
+        return typeId == null ? 0 : controlTiers.getOrDefault(typeId, 0);
+    }
+
+    /**
+     * 写某类型控件的档位。按 {@link ControlType} 注册的档位数夹取；
+     * 类型未注册时夹取到 0（不应发生——只有交互链路会调这里）。
+     * 注意：这只写数据，<b>不同步控件实体</b>；服务端请走
+     * {@code TardisManager#setControlTier}（写表 + 广播动画对位）。
+     */
+    public void setTier(String typeId, int value) {
+        if (typeId == null) return;
+        ControlType type = ControlTypes.byId(typeId);
+        int max = type == null ? 0 : type.defaultTiers() - 1;
+        controlTiers.put(typeId, Math.max(0, Math.min(value, max)));
+    }
+
+    // ---- 具名视图：油门 ----
+
+    /** 油门档位（0..4）。0 = 熄火，正数 = 飞行中该档速度。 */
+    public int throttle() { return tier(ControlTypes.THROTTLE.id()); }
 
     /** 设置油门档位。范围夹取到 0..4。 */
-    public void setThrottle(int value) {
-        this.throttle = Math.max(0, Math.min(value, 4));
-    }
+    public void setThrottle(int value) { setTier(ControlTypes.THROTTLE.id(), value); }
 
-    // ============================================================
-    //                      控件状态
-    // ============================================================
+    // ---- 具名视图：手刹 ----
 
-    public ControlState controlState() { return controlState; }
-
-    public int handbrake() { return controlState.handbrake(); }
+    public int handbrake() { return tier(ControlTypes.HANDBRAKE.id()); }
 
     /** 设置手刹档位。范围夹取到 0..3。 */
-    public void setHandbrake(int value) {
-        int hb = Math.max(0, Math.min(value, 3));
-        this.controlState = new ControlState(hb, controlState.parkingBrake(), controlState.coordStep());
-    }
+    public void setHandbrake(int value) { setTier(ControlTypes.HANDBRAKE.id(), value); }
 
-    public boolean parkingBrake() { return controlState.parkingBrake(); }
+    // ---- 具名视图：驻车制动 ----
+
+    public boolean parkingBrake() { return tier(ControlTypes.PARKING_BRAKE.id()) > 0; }
 
     public void setParkingBrake(boolean value) {
-        this.controlState = new ControlState(controlState.handbrake(), value, controlState.coordStep());
+        setTier(ControlTypes.PARKING_BRAKE.id(), value ? 1 : 0);
     }
 
-    /** 坐标控件单次点击的增量（格）。 */
-    public int coordStep() { return controlState.coordStep(); }
+    // ---- 具名视图：坐标增量器 ----
 
-    /** 设置坐标增量。夹取到 1..100000（单次点击上限 10 万）。 */
-    public void setCoordStep(int value) {
-        int step = Math.max(1, Math.min(value, 100_000));
-        this.controlState = new ControlState(controlState.handbrake(), controlState.parkingBrake(), step);
+    /**
+     * 坐标控件单次点击的增量（格）。由 {@code coord_step} 控件的档位
+     * 查 {@link IncrementBehavior#STEP_PER_TIER} 得出（档位 0 → 1 格 … 档位 5 → 100000 格）。
+     */
+    public int coordStep() {
+        int tier = Math.max(0, Math.min(tier(ControlTypes.COORD_STEP.id()),
+                IncrementBehavior.STEP_PER_TIER.length - 1));
+        return IncrementBehavior.STEP_PER_TIER[tier];
     }
 }

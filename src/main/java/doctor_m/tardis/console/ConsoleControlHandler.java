@@ -22,10 +22,16 @@ import java.util.UUID;
  *   <li>从 BE 外观 + 骨骼名解析 {@link ControlConfig}</li>
  *   <li>经 {@link ControlType#behavior()} 取 {@link ControlBehavior}</li>
  *   <li>前置检查（{@code canInteract}）</li>
- *   <li>算新档位 —— 无变化直接返回，不播动画不触发</li>
- *   <li>写 {@code tier} + {@code targetTime} 到实体的同步字段</li>
+ *   <li>算新档位（读 {@code TardisData} 全局档位表）—— 无变化直接返回，
+ *       不播动画不触发</li>
+ *   <li>经 {@code TardisManager#setControlTier} 写全局档位并广播到该 TARDIS
+ *       内所有同类型控件实体（每个实体刷新自己的动画对位字段）</li>
  *   <li>调 {@code behavior.onTierChanged}（带实体和点击类型）</li>
  * </ol>
+ *
+ * <h2>一份档位，全体控制台共用</h2>
+ * 档位的权威在 {@code TardisData}（key = 控件类型 id），控件实体只是视图。
+ * 任何一台控制台上的操作，其它台上的同类型控件会同步动到同一档。
  *
  * <h2>挡位规则</h2>
  * <ul>
@@ -82,17 +88,19 @@ public final class ConsoleControlHandler {
         ControlBehavior behavior = config.type().behavior();
         if (!behavior.canInteract(player, entity, data)) return;
 
-        // 5. 计算新档位
-        int oldTier = entity.getTier();
+        // 5. 计算新档位 —— 以 TARDIS 全局档位表为准，实体只是视图
+        //    （多台控制台的同类控件共享同一档位，见 TardisData#controlTiers）
+        String typeId = config.type().id();
+        int oldTier = data.tier(typeId);
         int maxTier = config.tiers() - 1;
         int newTier = nextTier(oldTier, maxTier, config.tierMode(), type);
 
         // 6. 无变化 → 不播动画不触发（到顶再右键的行为）
         if (newTier == oldTier) return;
 
-        // 7. 写档位 + 目标时间（会同步到客户端，驱动动画）
-        entity.setTier(newTier);
-        entity.setTargetTime(config.timeForTier(newTier));
+        // 7. 写全局档位 + 广播到该 TARDIS 内所有同类型控件实体
+        //    （每个实体按自己的外观配置刷新 DATA_TIER / target_time，驱动动画）
+        TardisManager.setControlTier(server, data, typeId, newTier);
 
         LOGGER.debug("[control] {} bone={} {}->{} by {}",
                 player.getName().getString(), entity.getBoneName(),

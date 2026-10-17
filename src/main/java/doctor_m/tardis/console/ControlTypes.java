@@ -39,9 +39,9 @@ public final class ControlTypes {
             new ControlType("throttle", 5, 5.0f, TierMode.CLAMP)
                     .behavior(new ThrottleHandler()));
 
-    /** 手刹：3 档，每拉一档飞行航速减半。 */
+    /** 手刹：3 档拉紧 + 0 档松开（共 4 个位置），每拉一档飞行航速减半。 */
     public static final ControlType HANDBRAKE = register(
-            new ControlType("handbrake", 3, 1.2f, TierMode.CLAMP)
+            new ControlType("handbrake", 4, 1.2f, TierMode.CLAMP)
                     .behavior(new HandbrakeBehavior()));
 
     /** 驻车制动：2 档开关（拉起禁起飞，飞行中拉起坠机）。 */

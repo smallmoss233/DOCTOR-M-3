@@ -2,10 +2,13 @@ package doctor_m.tardis.console;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.register.DMEntityTypes;
+import doctor_m.tardis.TardisData;
+import doctor_m.tardis.TardisManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
@@ -23,12 +26,24 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.UUID;
+
 /**
  * 控件实体：一个"知道自己在哪个骨骼上"的交互锚点。
  *
  * <h2>职责边界</h2>
- * <b>只管</b>：位置 / 碰撞箱 / 生命期 / NBT / 挡位同步。<br>
+ * <b>只管</b>：位置 / 碰撞箱 / 生命期 / NBT / 挡位视图同步。<br>
  * <b>不管</b>：交互业务逻辑 —— 那在 {@link ControlBehavior} 的实现里。
+ *
+ * <h2>档位：实体是视图，TardisData 是权威</h2>
+ * 同一 TARDIS 内所有控制台的同类控件共享一份档位（存在 {@code TardisData}）。
+ * 实体上的 tier/target_time 只服务于客户端动画对位：
+ * <ul>
+ *   <li>操作某台控制台 → {@code TardisManager#setControlTier} 写表并广播，
+ *       所有同类型实体 {@link #applyTier}</li>
+ *   <li>实体生成后第一个 tick → {@link #syncFromTardis} 自动对位，
+ *       新控制台因此无需任何额外配置就与其它控制台状态一致</li>
+ * </ul>
  *
  * <h2>consolePos 必须走 DataTracker</h2>
  * 客户端的动画控制器需要按 {@code consolePos} 把控件实体跟控制台 BE 关联，
@@ -164,6 +179,11 @@ public class ConsoleControlEntity extends Entity {
         super.tick();
         if (level().isClientSide()) return;
 
+        // 第一个服务端 tick：从所属 TARDIS 的全局档位表对位动画。
+        // 覆盖两种情况：新放置的控制台（实体刚生成）与存档重载（实体从 NBT 回来）。
+        // NBT 里的 tier 只是缓存，以 TardisData 为准。
+        if (this.tickCount == 1) syncFromTardis();
+
         // 降频检查：控制台 BE 被拆掉时丢弃控件实体。
         // 每秒查一次足够 —— 拆方块是低频事件，且延迟 1 秒不可感知。
         if (this.tickCount % CONSOLE_CHECK_INTERVAL != 0) return;
@@ -172,6 +192,62 @@ public class ConsoleControlEntity extends Entity {
         if (cp != null && !(level().getBlockEntity(cp) instanceof TardisConsoleBlockEntity)) {
             this.discard();
         }
+    }
+
+    // =========================================================
+    //                  全局档位视图
+    // =========================================================
+    // 档位的唯一权威在 TardisData（key = 控件类型 id）。实体上的
+    // DATA_TIER / DATA_TARGET_TIME 只是"视图缓存"，供客户端做动画对位。
+
+    /**
+     * 写档位并按<b>自身</b>的控件配置刷新动画目标时间。
+     * 被动入口：由 {@code TardisManager#setControlTier} 在广播时调用 ——
+     * 同一 TARDIS 里每个同类型实体都会收到，各自的 duration 可能不同
+     * （不同外观），所以目标时间各自算。
+     */
+    public void applyTier(int tier) {
+        setTier(tier);
+        setTargetTime(resolveTimeForTier(tier));
+    }
+
+    /**
+     * 从所属 TARDIS 的全局档位表对位自己的动画（服务端）。
+     *
+     * <p>在两个时机被调用：
+     * <ul>
+     *   <li>生成后第一个服务端 tick（覆盖新放置控制台 / 区块重载两种情况）</li>
+     *   <li>控制台 BE 生成实体后也可以显式调用（早于第一个 tick 生效）</li>
+     * </ul>
+     * 效果：新控制台的每个控件自动跳到当前档位对应的动画位置，与其它控制台一致。
+     */
+    public void syncFromTardis() {
+        if (!(level() instanceof ServerLevel sl)) return;
+        MinecraftServer server = sl.getServer();
+        BlockPos cp = getConsolePos();
+        if (server == null || cp == null
+                || !(sl.getBlockEntity(cp) instanceof TardisConsoleBlockEntity be)) {
+            return;
+        }
+        UUID tardisId = be.getTardisId();
+        if (tardisId == null) return;
+        TardisData data = TardisManager.get(server, tardisId);
+        ControlType type = controlType();
+        if (data == null || type == null) return;
+
+        applyTier(data.tier(type.id()));
+    }
+
+    /** 查自身外观配置，算出某档位对应的动画时间点；无法解析时 0（回静止位）。 */
+    private float resolveTimeForTier(int tier) {
+        BlockPos cp = getConsolePos();
+        if (cp == null || !(level() instanceof ServerLevel sl)) return 0f;
+        if (!(sl.getBlockEntity(cp) instanceof TardisConsoleBlockEntity be)) return 0f;
+
+        TardisConsoleAppearance app = TardisConsoleRegistry.get(be.getAppearanceId());
+        if (app == null) return 0f;
+        ControlConfig config = ConsoleBoneMatcher.resolve(getBoneName(), app);
+        return config == null ? 0f : config.timeForTier(tier);
     }
 
     // =========================================================

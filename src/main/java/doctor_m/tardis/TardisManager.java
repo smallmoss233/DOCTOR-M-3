@@ -6,6 +6,7 @@ import doctor_m.register.DMBlocks;
 import doctor_m.register.DMSounds;
 import doctor_m.stp.StpManager;
 import doctor_m.stp.StpServerState;
+import doctor_m.tardis.console.ConsoleControlEntity;
 import mosslib.core.dimension.DimensionTemplate;
 import mosslib.core.dimension.DynamicDimensionManager;
 import net.minecraft.core.BlockPos;
@@ -23,6 +24,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
+import net.minecraft.world.level.entity.EntityTypeTest;
 
 import java.util.*;
 
@@ -535,6 +537,42 @@ public final class TardisManager {
         // MAT 低音调 = 坠毁感；后续可以换成专属 crash 音效
         playTardisSound(server, data, DMSounds.MAT, 1.4f, 0.6f);
         return true;
+    }
+
+    // ================================================================
+    //                      全局控件档位
+    // ================================================================
+
+    /**
+     * 写入某类型控件的全局档位，并同步到该 TARDIS 内所有同类型控件实体。
+     *
+     * <h2>一份档位，全体控制台共用</h2>
+     * 档位的唯一权威存在 {@link TardisData#tier(String)}（按类型 id）。
+     * 任何一台控制台上的操作都走这里：
+     * <ol>
+     *   <li>写 {@code TardisData}（随 TARDIS 持久化）</li>
+     *   <li>遍历内部维度里所有 {@code control_type} 匹配的控件实体，
+     *       逐个 {@link ConsoleControlEntity#applyTier} —— 实体只写同步数据
+     *       （DATA_TIER / target_time），客户端据此把骨骼动画播到对应位置</li>
+     * </ol>
+     * 这样：新放置的控制台生成实体后只需读一次表就能与其它控制台对位；
+     * A 台拉手刹，B 台的手刹也会同步动到同一档。
+     */
+    public static void setControlTier(MinecraftServer server, TardisData data,
+                                      String typeId, int tier) {
+        data.setTier(typeId, tier);
+        getRegistry(server).setDirty();
+
+        ResourceKey<Level> key = ResourceKey.create(
+                Registries.DIMENSION, DimensionTemplate.dimensionIdFor(data.id()));
+        ServerLevel interior = server.getLevel(key);
+        if (interior == null) return;
+
+        for (ConsoleControlEntity e : interior.getEntities(
+                EntityTypeTest.forClass(ConsoleControlEntity.class),
+                c -> typeId.equals(c.getControlTypeId()))) {
+            e.applyTier(tier);
+        }
     }
 
     public static void tickAll(MinecraftServer server) {
