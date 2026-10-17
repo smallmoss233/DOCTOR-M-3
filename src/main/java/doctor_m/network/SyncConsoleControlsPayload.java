@@ -1,6 +1,5 @@
 package doctor_m.network;
 
-import doctor_m.network.DMNetwork;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;

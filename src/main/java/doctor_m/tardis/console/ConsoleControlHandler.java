@@ -20,11 +20,11 @@ import java.util.UUID;
  *   <li>从 {@code consolePos} 找到控制台 BE</li>
  *   <li>从 BE 拿 {@code tardisId} → {@link TardisData}</li>
  *   <li>从 BE 外观 + 骨骼名解析 {@link ControlConfig}</li>
- *   <li>找到 {@link ControlHandler}</li>
+ *   <li>经 {@link ControlType#behavior()} 取 {@link ControlBehavior}</li>
  *   <li>前置检查（{@code canInteract}）</li>
  *   <li>算新档位 —— 无变化直接返回，不播动画不触发</li>
  *   <li>写 {@code tier} + {@code targetTime} 到实体的同步字段</li>
- *   <li>调 {@code handler.onTierChanged}</li>
+ *   <li>调 {@code behavior.onTierChanged}（带实体和点击类型）</li>
  * </ol>
  *
  * <h2>挡位规则</h2>
@@ -34,21 +34,18 @@ import java.util.UUID;
  *   <li>潜行右键：拉到顶（{@code maxTier}）</li>
  *   <li>潜行左键：拉到底（0）</li>
  * </ul>
- * CLAMP 模式夹取，CYCLE 模式回绕。到顶再右键 → 无变化 → 不播动画。
+ * CLAMP 模式夹取，CYCLE 模式回绕（见 {@link TierMode#apply}）。
+ * 到顶再右键 → 无变化 → 不播动画。
+ *
+ * <h2>脉冲式控件（坐标类）</h2>
+ * 用 2 档 CYCLE 让<b>每一次点击</b>都产生档位变化（0↔1），从而每次点击都
+ * 触发回调；方向由 {@link ClickType} 传给行为。
  */
 public final class ConsoleControlHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("doctor_m/console");
 
     private ConsoleControlHandler() {}
-
-    /** 交互类型。 */
-    public enum ClickType {
-        RIGHT,          // 右键：挡位 +1
-        SNEAK_RIGHT,    // 潜行右键：直接拉到最大
-        LEFT,           // 左键：挡位 -1
-        SNEAK_LEFT      // 潜行左键：直接拉到最小
-    }
 
     // =========================================================
     //                      主入口
@@ -63,17 +60,15 @@ public final class ConsoleControlHandler {
         BlockPos consolePos = entity.getConsolePos();
         if (consolePos == null) return;
 
-        MinecraftServer server = level.getServer();
-        if (server == null) return;
-
         // 1. 控制台 BE
         if (!(level.getBlockEntity(consolePos) instanceof TardisConsoleBlockEntity be)) {
             return;
         }
 
         // 2. TARDIS
+        MinecraftServer server = level.getServer();
         UUID tardisId = be.getTardisId();
-        if (tardisId == null) return;    // 装饰品
+        if (server == null || tardisId == null) return;    // 装饰品
         TardisData data = TardisManager.get(server, tardisId);
         if (data == null) return;
 
@@ -83,22 +78,19 @@ public final class ConsoleControlHandler {
         ControlConfig config = ConsoleBoneMatcher.resolve(entity.getBoneName(), app);
         if (config == null) return;
 
-        // 4. 处理器
-        ControlHandler handler = ControlHandlers.get(config.type().id());
-        if (handler == null) return;
+        // 4. 行为（类型与行为绑定在同一个 ControlType 上）
+        ControlBehavior behavior = config.type().behavior();
+        if (!behavior.canInteract(player, entity, data)) return;
 
-        // 5. 前置检查
-        if (!handler.canInteract(player, entity, data)) return;
-
-        // 6. 计算新档位
+        // 5. 计算新档位
         int oldTier = entity.getTier();
         int maxTier = config.tiers() - 1;
         int newTier = nextTier(oldTier, maxTier, config.tierMode(), type);
 
-        // 7. 无变化 → 不播动画不触发（到顶再右键的行为）
+        // 6. 无变化 → 不播动画不触发（到顶再右键的行为）
         if (newTier == oldTier) return;
 
-        // 8. 写档位 + 目标时间（会同步到客户端，驱动动画）
+        // 7. 写档位 + 目标时间（会同步到客户端，驱动动画）
         entity.setTier(newTier);
         entity.setTargetTime(config.timeForTier(newTier));
 
@@ -106,8 +98,8 @@ public final class ConsoleControlHandler {
                 player.getName().getString(), entity.getBoneName(),
                 oldTier, newTier, type);
 
-        // 9. 业务回调
-        handler.onTierChanged(level, data, entity, oldTier, newTier);
+        // 8. 业务回调
+        behavior.onTierChanged(level, data, entity, type, oldTier, newTier);
     }
 
     // =========================================================
@@ -115,7 +107,7 @@ public final class ConsoleControlHandler {
     // =========================================================
 
     /**
-     * 计算下一个挡位。
+     * 计算下一个挡位。折算规则委托给 {@link TierMode#apply}。
      *
      * @param current 当前挡位
      * @param maxTier 最大挡位（{@code tiers - 1}）
@@ -125,21 +117,12 @@ public final class ConsoleControlHandler {
     public static int nextTier(int current, int maxTier, TierMode mode, ClickType type) {
         if (maxTier <= 0) return 0;    // 单档控件恒为 0
 
-        int target;
-        switch (type) {
-            case RIGHT       -> target = current + 1;
-            case LEFT        -> target = current - 1;
-            case SNEAK_RIGHT -> target = maxTier;
-            case SNEAK_LEFT  -> target = 0;
-            default          -> target = current;
-        }
-
-        if (mode == TierMode.CLAMP) {
-            return Math.max(0, Math.min(target, maxTier));
-        } else {
-            // CYCLE：越界回绕
-            int range = maxTier + 1;
-            return ((target % range) + range) % range;
-        }
+        int target = switch (type) {
+            case RIGHT       -> current + 1;
+            case LEFT        -> current - 1;
+            case SNEAK_RIGHT -> maxTier;
+            case SNEAK_LEFT  -> 0;
+        };
+        return mode.apply(target, maxTier);
     }
 }

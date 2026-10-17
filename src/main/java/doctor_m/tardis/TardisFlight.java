@@ -9,16 +9,14 @@ import net.minecraft.world.phys.Vec3;
  *
  * <p>只在 {@link TardisState#FLYING} 状态下调用。有目的地时朝目的地走，
  * 没目的地时悬停（速度算出来但没有目标方向）。速度由
- * {@link TardisData#throttle()} 决定。
+ * {@link TardisData#throttle()} 决定，再被手刹档位折减。
  *
  * <h2>速度公式</h2>
- * {@code 2 × 2^档位} 格/tick：
+ * {@code 2 × 2^油门档位 / 2^手刹档位} 格/tick：
  * <pre>
- *   档位 0  →  0（不移动）
- *   档位 1  →  4
- *   档位 2  →  8
- *   档位 3  → 16
- *   档位 4  → 32（满速）
+ *   油门 0              →  0（不移动）
+ *   油门 1..4（手刹 0） →  4 / 8 / 16 / 32（满速）
+ *   手刹每拉一档        →  航速减半（手刹 3 档时满速只剩 1/8）
  * </pre>
  */
 public final class TardisFlight {
@@ -27,9 +25,19 @@ public final class TardisFlight {
 
     /** 档位对应的速度（格/tick）。档位 ≤ 0 返回 0。 */
     public static double speedOf(int throttle) {
+        return speedOf(throttle, 0);
+    }
+
+    /**
+     * 档位 + 手刹对应的速度（格/tick）。油门 ≤ 0 返回 0。
+     *
+     * <p>手刹每档折半：{@code base / 2^handbrake}（手刹 3 档 = 1/8 速）。
+     */
+    public static double speedOf(int throttle, int handbrake) {
         if (throttle <= 0) return 0;
         // 2 × 2^tier：1→4, 2→8, 3→16, 4→32
-        return 2.0 * (1 << throttle);
+        double base = 2.0 * (1 << throttle);
+        return handbrake > 0 ? base / (1 << Math.min(handbrake, 3)) : base;
     }
 
     /**
@@ -40,7 +48,7 @@ public final class TardisFlight {
      */
     public static void tick(MinecraftServer server, TardisData data) {
         int throttle = data.throttle();
-        double speed = speedOf(throttle);
+        double speed = speedOf(throttle, data.handbrake());
         if (speed <= 0) return;                    // 熄火 → 悬停
 
         if (!data.hasDestination()) return;        // 无目的地 → 悬停

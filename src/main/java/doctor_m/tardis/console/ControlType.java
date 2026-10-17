@@ -1,13 +1,13 @@
 package doctor_m.tardis.console;
 
 /**
- * 一种控件类型。
+ * 一种控件类型：数据（默认挡位/时长/到顶行为）+ 行为（{@link ControlBehavior}）。
  *
  * <h2>为什么不是枚举</h2>
  * 枚举要求每个类型在编译期就定义好，加新控件必须改枚举源码。改成可实例化
  * 的对象后，控件类型可以：
  * <ul>
- *   <li>在 {@link ControlTypes} 里集中注册</li>
+ *   <li>在 {@link ControlTypes} 里集中注册（原 {@code ControlHandlers} 注册表已并入）</li>
  *   <li>由别的模组注册自己的类型</li>
  *   <li>携带各自的业务回调，无需 switch 分发</li>
  * </ul>

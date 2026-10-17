@@ -23,17 +23,20 @@ import org.jetbrains.annotations.Nullable;
 public final class ConsoleBoneMatcher {
 
     public static final String PREFIX = "ctrl_";
+    private static final int PREFIX_LENGTH = PREFIX.length();
 
     private ConsoleBoneMatcher() {}
 
     /** 骨骼名是否符合控件命名约定。 */
     public static boolean isControlBone(String boneName) {
-        return boneName != null && boneName.startsWith(PREFIX) && boneName.length() > PREFIX.length();
+        return boneName != null
+                && boneName.startsWith(PREFIX)
+                && boneName.length() > PREFIX_LENGTH;
     }
 
     /** 从骨骼名提取 type id；不符合约定返回 null。 */
     public static @Nullable String typeId(String boneName) {
-        return isControlBone(boneName) ? boneName.substring(PREFIX.length()) : null;
+        return isControlBone(boneName) ? boneName.substring(PREFIX_LENGTH) : null;
     }
 
     /**
@@ -44,19 +47,15 @@ public final class ConsoleBoneMatcher {
     public static @Nullable ControlConfig resolve(String boneName, TardisConsoleAppearance app) {
         if (boneName == null) return null;
 
-        // 1. 显式配置
+        // 1. 显式配置优先
         if (app != null) {
             ControlConfig explicit = app.controls().get(boneName);
             if (explicit != null) return explicit;
         }
 
-        // 2. 命名约定
-        String id = typeId(boneName);
-        if (id == null) return null;
-        ControlType type = ControlTypes.byId(id);
-        if (type == null) return null;
-
-        return type.defaultConfig();
+        // 2. 命名约定 → 已注册类型的默认参数
+        ControlType type = ControlTypes.byId(typeId(boneName));
+        return type == null ? null : type.defaultConfig();
     }
 
     /**

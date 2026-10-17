@@ -1,6 +1,7 @@
 package doctor_m.tardis.console;
 
 import mosslib.core.bedrock.BedrockGeometryModel;
+import mosslib.core.bedrock.BedrockRenderMath;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
@@ -94,8 +95,7 @@ public final class ConsoleControlLayout {
         Vector3f rot = bone.rotation();
         if (rot.x() != 0f || rot.y() != 0f || rot.z() != 0f) {
             // 骨骼旋转走 mosslib 的定序（与本项目其它地方一致）
-            Quaternionf q = mosslib.core.bedrock.BedrockRenderMath.boneRotationEuler(rot);
-            pose.rotate(q);
+            pose.rotate(BedrockRenderMath.boneRotationEuler(rot));
         }
 
         // 2. 这个骨骼是不是控件骨骼？
@@ -138,13 +138,6 @@ public final class ConsoleControlLayout {
 
         Vector3f cubePivot = cube.pivot() != null ? cube.pivot() : bonePivot;
 
-        float x0 = cube.origin().x() - cubePivot.x();
-        float y0 = cube.origin().y() - cubePivot.y();
-        float z0 = cube.origin().z() - cubePivot.z();
-        float x1 = x0 + size.x();
-        float y1 = y0 + size.y();
-        float z1 = z0 + size.z();
-
         Matrix4f m = new Matrix4f(bonePose);
 
         float dpx = cubePivot.x() - bonePivot.x();
@@ -156,18 +149,22 @@ public final class ConsoleControlLayout {
         Vector3f cr = cube.rotation();
         if (cr.x() != 0f || cr.y() != 0f || cr.z() != 0f) {
             // 与渲染器 / BoundingBox 一致：走 BedrockRenderMath.cubeRotationEuler
-            m.rotate(mosslib.core.bedrock.BedrockRenderMath.cubeRotationEuler(cr));
+            m.rotate(BedrockRenderMath.cubeRotationEuler(cr));
         }
 
         Vector3f tmp = new Vector3f();
-        for (int i = 0; i < 8; i++) {
-            tmp.set(
-                    (i & 1) == 0 ? x0 : x1,
-                    (i & 2) == 0 ? y0 : y1,
-                    (i & 4) == 0 ? z0 : z1);
-            m.transformPosition(tmp);
-            group.include(tmp.x, tmp.y, tmp.z);
-        }
+        forEachCorner(
+                cube.origin().x() - cubePivot.x(),
+                cube.origin().y() - cubePivot.y(),
+                cube.origin().z() - cubePivot.z(),
+                cube.origin().x() - cubePivot.x() + size.x(),
+                cube.origin().y() - cubePivot.y() + size.y(),
+                cube.origin().z() - cubePivot.z() + size.z(),
+                (x, y, z) -> {
+                    tmp.set((float) x, (float) y, (float) z);
+                    m.transformPosition(tmp);
+                    group.include(tmp.x, tmp.y, tmp.z);
+                });
     }
 
     // =========================================================
@@ -177,60 +174,63 @@ public final class ConsoleControlLayout {
     /**
      * 与 {@code BedrockRenderPipeline.render} 一致的变换链。
      *
-     * <p>注意 {@code BedrockRenderPipeline} 里是
-     * {@code translate(0.5, 0, 0.5) → rotate → translate(offset/16) → scale(scale/16)}，
-     * PoseStack 的右乘顺序意味着对顶点实际是"先缩放 → 再偏移 → 再旋转 → 最后平移到方块中心"。
-     * 这里反着算一遍。
+     * <p>PoseStack 的右乘顺序意味着对顶点实际是
+     * "先缩放 → 再偏移 → 再旋转 → 最后平移到方块中心"，
+     * 即世界坐标 {@code v' = T(pos) · R(yaw) · T(offset) · S(scale) · v}。
      */
     private static AABB toWorldAABB(AABB local,
                                     TardisConsoleAppearance app,
                                     BlockPos pos,
                                     Direction blockFacing) {
         float s = app.scale() / 16f;
-        float offX = app.offsetX() / 16f;
-        float offY = app.offsetY() / 16f;
-        float offZ = app.offsetZ() / 16f;
-
         float rotDeg = app.modelFacing().toYRot() - blockFacing.toYRot();
-        double rad = Math.toRadians(rotDeg);
-        double cos = Math.cos(rad);
-        double sin = Math.sin(rad);
 
-        double baseX = pos.getX() + 0.5;
-        double baseY = pos.getY();
-        double baseZ = pos.getZ() + 0.5;
+        // JOML 方法依次右乘，构造出 T(pos) · R · T(offset) · S
+        Matrix4f m = new Matrix4f()
+                .translate(pos.getX() + 0.5f, pos.getY(), pos.getZ() + 0.5f)
+                .rotateY((float) Math.toRadians(rotDeg))
+                .translate(app.offsetX() / 16f, app.offsetY() / 16f, app.offsetZ() / 16f)
+                .scale(s);
 
-        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
-        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
 
+        Vector3f v = new Vector3f();
         for (int i = 0; i < 8; i++) {
-            double lx = ((i & 1) == 0 ? local.minX : local.maxX);
-            double ly = ((i & 2) == 0 ? local.minY : local.maxY);
-            double lz = ((i & 4) == 0 ? local.minZ : local.maxZ);
+            v.set((i & 1) == 0 ? (float) local.minX : (float) local.maxX,
+                  (i & 2) == 0 ? (float) local.minY : (float) local.maxY,
+                  (i & 4) == 0 ? (float) local.minZ : (float) local.maxZ);
+            m.transformPosition(v);
 
-            // 1. 缩放 + offset
-            double x = lx * s + offX;
-            double y = ly * s + offY;
-            double z = lz * s + offZ;
-
-            // 2. 绕 Y 旋转（JOML rotationY 的约定）
-            double rx = x * cos + z * sin;
-            double rz = -x * sin + z * cos;
-
-            // 3. 平移到方块中心
-            double wx = rx + baseX;
-            double wy = y + baseY;
-            double wz = rz + baseZ;
-
-            if (wx < minX) minX = wx;
-            if (wy < minY) minY = wy;
-            if (wz < minZ) minZ = wz;
-            if (wx > maxX) maxX = wx;
-            if (wy > maxY) maxY = wy;
-            if (wz > maxZ) maxZ = wz;
+            if (v.x < minX) minX = v.x;
+            if (v.y < minY) minY = v.y;
+            if (v.z < minZ) minZ = v.z;
+            if (v.x > maxX) maxX = v.x;
+            if (v.y > maxY) maxY = v.y;
+            if (v.z > maxZ) maxZ = v.z;
         }
-
         return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    // =========================================================
+    //                      工具
+    // =========================================================
+
+    /** 遍历盒子的 8 个角。骨骼 cube 累加与世界变换共用这一份角落枚举逻辑。 */
+    private static void forEachCorner(double minX, double minY, double minZ,
+                                      double maxX, double maxY, double maxZ,
+                                      CornerConsumer consumer) {
+        for (int i = 0; i < 8; i++) {
+            consumer.accept(
+                    (i & 1) == 0 ? minX : maxX,
+                    (i & 2) == 0 ? minY : maxY,
+                    (i & 4) == 0 ? minZ : maxZ);
+        }
+    }
+
+    @FunctionalInterface
+    private interface CornerConsumer {
+        void accept(double x, double y, double z);
     }
 
     // =========================================================

@@ -26,11 +26,6 @@ public record ControlConfig(
         if (duration <= 0f) duration = 0.01f;
     }
 
-    /** 用类型的默认参数构造。 */
-    public static ControlConfig of(ControlType type) {
-        return type.defaultConfig();
-    }
-
     /** 覆盖动画名。 */
     public ControlConfig withAnimation(String animationId) {
         return new ControlConfig(type, tiers, duration, tierMode, animationId);

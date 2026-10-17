@@ -12,6 +12,16 @@
       "type": "throttle",
       "tiers": 5,
       "animation": "animation.console.throttle"
+    },
+    "刹车": {
+      "type": "handbrake",
+      "tiers": 3,
+      "animation": "animation.console.handbrake"
+    },
+    "驻车制动": {
+      "type": "parking_brake",
+      "tiers": 2,
+      "animation": "animation.console.parking_brake"
     }
   }
 }

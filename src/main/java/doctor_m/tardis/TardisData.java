@@ -45,6 +45,9 @@ public final class TardisData {
     private BlockPos targetPos = null;
     /** 当前油门档位（0..4）。0 = 熄火，正数 = 飞行中该档速度。 */
     private int throttle = 0;
+    /** 控件状态。独立成 record 是因为 RecordCodecBuilder.group 最多 16 个字段，
+     *  14 个基础字段 + 控件状态合 1 个 = 15 个，留有余量。 */
+    private ControlState controlState = ControlState.DEFAULT;
 
     // ============================================================
     //                      兼容构造器
@@ -117,17 +120,44 @@ public final class TardisData {
             BlockPos.CODEC.optionalFieldOf("target_pos")
                     .forGetter(d -> Optional.ofNullable(d.targetPos)),
             Codec.INT.optionalFieldOf("throttle", 0)
-                    .forGetter(TardisData::throttle)
+                    .forGetter(TardisData::throttle),
+
+            // ---- 控件状态（合一个 record，绕开 group 的 16 参数上限）----
+            ControlState.CODEC.optionalFieldOf("control_state", ControlState.DEFAULT)
+                    .forGetter(TardisData::controlState)
     ).apply(inst, (id, owner, ed, ep, ef, ip, inf, app, spares,
-                   state, ticks, tdim, tpos, throt) -> {
+                   state, ticks, tdim, tpos, throt, ctrl) -> {
         TardisData d = new TardisData(id, owner, ed, ep, ef, ip, inf, app, spares);
         d.state = state == null ? TardisState.LANDED : state;
         d.stateTicks = ticks;
         d.targetDim = tdim.orElse(null);
         d.targetPos = tpos.orElse(null);
         d.throttle = Math.max(0, Math.min(throt, 4));
+        d.controlState = ctrl.sanitized();
         return d;
     }));
+
+    /**
+     * 控件相关状态（手刹 / 驻车制动 / 坐标增量）。
+     * 旧存档没有 {@code control_state} 字段时整体取 {@link #DEFAULT}。
+     */
+    public record ControlState(int handbrake, boolean parkingBrake, int coordStep) {
+        public static final ControlState DEFAULT = new ControlState(0, false, 1);
+
+        public static final Codec<ControlState> CODEC = RecordCodecBuilder.create(inst -> inst.group(
+                Codec.INT.optionalFieldOf("handbrake", 0).forGetter(ControlState::handbrake),
+                Codec.BOOL.optionalFieldOf("parking_brake", false).forGetter(ControlState::parkingBrake),
+                Codec.INT.optionalFieldOf("coord_step", 1).forGetter(ControlState::coordStep)
+        ).apply(inst, ControlState::new));
+
+        /** 越界值夹取回合法范围。 */
+        ControlState sanitized() {
+            return new ControlState(
+                    Math.max(0, Math.min(handbrake, 3)),
+                    parkingBrake,
+                    Math.max(1, Math.min(coordStep, 100_000)));
+        }
+    }
 
     // ============================================================
     //                      现有 getter
@@ -209,5 +239,34 @@ public final class TardisData {
     /** 设置油门档位。范围夹取到 0..4。 */
     public void setThrottle(int value) {
         this.throttle = Math.max(0, Math.min(value, 4));
+    }
+
+    // ============================================================
+    //                      控件状态
+    // ============================================================
+
+    public ControlState controlState() { return controlState; }
+
+    public int handbrake() { return controlState.handbrake(); }
+
+    /** 设置手刹档位。范围夹取到 0..3。 */
+    public void setHandbrake(int value) {
+        int hb = Math.max(0, Math.min(value, 3));
+        this.controlState = new ControlState(hb, controlState.parkingBrake(), controlState.coordStep());
+    }
+
+    public boolean parkingBrake() { return controlState.parkingBrake(); }
+
+    public void setParkingBrake(boolean value) {
+        this.controlState = new ControlState(controlState.handbrake(), value, controlState.coordStep());
+    }
+
+    /** 坐标控件单次点击的增量（格）。 */
+    public int coordStep() { return controlState.coordStep(); }
+
+    /** 设置坐标增量。夹取到 1..100000（单次点击上限 10 万）。 */
+    public void setCoordStep(int value) {
+        int step = Math.max(1, Math.min(value, 100_000));
+        this.controlState = new ControlState(controlState.handbrake(), controlState.parkingBrake(), step);
     }
 }

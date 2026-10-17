@@ -38,6 +38,8 @@ public final class TardisManager {
     private static final int TAKEOFF_TICKS = 420;
     /** 降落时长 = MAT 音效时长（23 秒）。 */
     private static final int LANDING_TICKS = 460;
+    /** 坠机时长。比正常降落短得多 —— 强制就地砸下来。 */
+    private static final int CRASH_TICKS = 100;
     /** 飞行循环音效间隔 = FLY 音效时长。 */
     private static final int FLYING_SOUND_INTERVAL = 50;
     /** 起飞后多久开始淡出门（tick）。前 30 tick 用于关门动画。 */
@@ -510,6 +512,28 @@ public final class TardisManager {
         getRegistry(server).setDirty();
 
         playTardisSound(server, data, DMSounds.MAT, 1.0f, 1.0f);
+        return true;
+    }
+
+    /**
+     * 坠机。要求：FLYING（飞行中拉起驻车制动触发，见 {@code ParkingBrakeBehavior}）。
+     * <ul>
+     *   <li>清空目的地 + 油门归零</li>
+     *   <li>进入 LANDING（时长 {@link #CRASH_TICKS}，比正常降落短）</li>
+     *   <li>落地时 {@code applyDestination} 是 no-op → 门在当前位置重建，
+     *       即"坠毁在哪就落在哪"</li>
+     * </ul>
+     */
+    public static boolean startCrash(MinecraftServer server, TardisData data) {
+        if (data.state() != TardisState.FLYING) return false;
+
+        data.clearDestination();
+        data.setThrottle(0);
+        data.setState(TardisState.LANDING, CRASH_TICKS);
+        getRegistry(server).setDirty();
+
+        // MAT 低音调 = 坠毁感；后续可以换成专属 crash 音效
+        playTardisSound(server, data, DMSounds.MAT, 1.4f, 0.6f);
         return true;
     }
 

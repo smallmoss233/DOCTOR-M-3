@@ -11,6 +11,28 @@
 					}
 				}
 			}
+		},
+		"animation.console.handbrake": {
+			"animation_length": 0.5,
+			"bones": {
+				"推杆2": {
+					"rotation": {
+						"0.0": [0, 0, 0],
+						"0.5": [70, 0, 0]
+					}
+				}
+			}
+		},
+		"animation.console.parking_brake": {
+			"animation_length": 0.5,
+			"bones": {
+				"推杆3": {
+					"rotation": {
+						"0.0": [0, 0, 0],
+						"0.5": [70, 0, 0]
+					}
+				}
+			}
 		}
 	}
 }

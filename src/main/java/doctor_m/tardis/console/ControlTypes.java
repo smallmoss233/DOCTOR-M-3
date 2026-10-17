@@ -1,7 +1,10 @@
 package doctor_m.tardis.console;
 
-import doctor_m.tardis.TardisData;
-import net.minecraft.server.level.ServerLevel;
+import doctor_m.tardis.console.handler.CoordinateBehavior;
+import doctor_m.tardis.console.handler.HandbrakeBehavior;
+import doctor_m.tardis.console.handler.IncrementBehavior;
+import doctor_m.tardis.console.handler.ParkingBrakeBehavior;
+import doctor_m.tardis.console.handler.ThrottleHandler;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -9,13 +12,14 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 控件类型的全局注册表。
+ * 控件类型的<b>唯一</b>注册表。
  *
- * <h2>加新控件只需一行</h2>
+ * <h2>加新控件</h2>
  * <pre>{@code
- * public static final ControlType TELEPORT = register(
- *         new ControlType("teleport", 1, 0.3f, TierMode.CLAMP)
- *                 .behavior((level, data, oldTier, newTier) -> data.travel().teleport()));
+ * // 1. 写一个 handler/XxxBehavior.java（实现 ControlBehavior）
+ * // 2. 在这里注册一行：
+ * public static final ControlType XXX = register(
+ *         new ControlType("xxx", 2, 0.5f, TierMode.CLAMP).behavior(new XxxBehavior()));
  * }</pre>
  *
  * <p>别的模组也可以在初始化时调 {@link #register} 注册自己的类型。
@@ -30,10 +34,40 @@ public final class ControlTypes {
     //                        内置类型
     // =========================================================
 
-    /** 油门：多档、长行程。 */
+    /** 油门：5 档长行程，带起飞/降落业务（受驻车制动联锁）。 */
     public static final ControlType THROTTLE = register(
             new ControlType("throttle", 5, 5.0f, TierMode.CLAMP)
-                    .behavior(ControlTypes::onThrottle));
+                    .behavior(new ThrottleHandler()));
+
+    /** 手刹：3 档，每拉一档飞行航速减半。 */
+    public static final ControlType HANDBRAKE = register(
+            new ControlType("handbrake", 3, 1.2f, TierMode.CLAMP)
+                    .behavior(new HandbrakeBehavior()));
+
+    /** 驻车制动：2 档开关（拉起禁起飞，飞行中拉起坠机）。 */
+    public static final ControlType PARKING_BRAKE = register(
+            new ControlType("parking_brake", 2, 0.4f, TierMode.CLAMP)
+                    .behavior(new ParkingBrakeBehavior()));
+
+    /** 目的地 X 坐标：2 档 CYCLE 脉冲，每次点击 ±增量。 */
+    public static final ControlType COORD_X = register(
+            new ControlType("coord_x", 2, 0.15f, TierMode.CYCLE)
+                    .behavior(new CoordinateBehavior(CoordinateBehavior.Axis.X)));
+
+    /** 目的地 Y 坐标：同上。 */
+    public static final ControlType COORD_Y = register(
+            new ControlType("coord_y", 2, 0.15f, TierMode.CYCLE)
+                    .behavior(new CoordinateBehavior(CoordinateBehavior.Axis.Y)));
+
+    /** 目的地 Z 坐标：同上。 */
+    public static final ControlType COORD_Z = register(
+            new ControlType("coord_z", 2, 0.15f, TierMode.CYCLE)
+                    .behavior(new CoordinateBehavior(CoordinateBehavior.Axis.Z)));
+
+    /** 数值增量器：6 档 CYCLE，单次点击增量 1 → 100 000（上限）。 */
+    public static final ControlType COORD_STEP = register(
+            new ControlType("coord_step", 6, 0.8f, TierMode.CYCLE)
+                    .behavior(new IncrementBehavior()));
 
     /** 拉杆：常见 2 档短行程。 */
     public static final ControlType LEVER = register(
@@ -43,7 +77,7 @@ public final class ControlTypes {
     public static final ControlType BUTTON = register(
             new ControlType("button", 1, 0.2f, TierMode.CLAMP));
 
-    /** 模式旋钮：多档循环。 */
+    /** 模式旋钮：多档循环。目前无业务逻辑，走 {@link ControlBehavior#NONE}。 */
     public static final ControlType MODE = register(
             new ControlType("mode", 3, 0.6f, TierMode.CYCLE));
 
@@ -55,8 +89,7 @@ public final class ControlTypes {
     public static ControlType register(ControlType type) {
         ControlType prev = REGISTRY.putIfAbsent(type.id(), type);
         if (prev != null) {
-            throw new IllegalStateException(
-                    "Duplicate control type id: " + type.id());
+            throw new IllegalStateException("Duplicate control type id: " + type.id());
         }
         return type;
     }
@@ -69,21 +102,5 @@ public final class ControlTypes {
     /** 已注册的全部类型（不可变视图）。 */
     public static Map<String, ControlType> all() {
         return Collections.unmodifiableMap(REGISTRY);
-    }
-
-    // =========================================================
-    //                        内置行为
-    // =========================================================
-
-    /**
-     * 油门默认行为：挡位越大，行程越"深入"。具体映射由 TARDIS 侧决定。
-     *
-     * <p>这里只提供"挡位 → 做了什么"的骨架，具体的飞行逻辑（起飞、加速等）
-     * 需要 TARDIS 侧有对应 API 后接上。
-     */
-    private static void onThrottle(ServerLevel level, TardisData data,
-                                   int oldTier, int newTier) {
-        // TODO: 接上 TARDIS 的飞行状态机后，把挡位映射到 travel().setThrottle(newTier)
-        // 目前只是占位。
     }
 }

@@ -28,7 +28,7 @@ import org.jetbrains.annotations.Nullable;
  *
  * <h2>职责边界</h2>
  * <b>只管</b>：位置 / 碰撞箱 / 生命期 / NBT / 挡位同步。<br>
- * <b>不管</b>：交互业务逻辑 —— 那在 {@link ControlHandler} 的子类里。
+ * <b>不管</b>：交互业务逻辑 —— 那在 {@link ControlBehavior} 的实现里。
  *
  * <h2>consolePos 必须走 DataTracker</h2>
  * 客户端的动画控制器需要按 {@code consolePos} 把控件实体跟控制台 BE 关联，
@@ -36,6 +36,9 @@ import org.jetbrains.annotations.Nullable;
  * 都会被渲染端跳过，动画不生效。
  */
 public class ConsoleControlEntity extends Entity {
+
+    /** 控制台 BE 存活检查的间隔（tick）。没必要每 tick 都查方块实体。 */
+    private static final int CONSOLE_CHECK_INTERVAL = 20;
 
     // =========================================================
     //                      同步字段
@@ -142,8 +145,8 @@ public class ConsoleControlEntity extends Entity {
     //                      实体行为
     // =========================================================
 
-    @Override public boolean isPickable()  { return true; }
-    @Override public boolean isPushable()  { return false; }
+    @Override public boolean isPickable()   { return true; }
+    @Override public boolean isPushable()   { return false; }
     @Override public boolean isAttackable() { return true; }
 
     @Override
@@ -152,7 +155,7 @@ public class ConsoleControlEntity extends Entity {
     }
 
     @Override
-    public boolean canBeCollidedWith(net.minecraft.world.entity.@Nullable Entity other) {
+    public boolean canBeCollidedWith(@Nullable Entity other) {
         return true;
     }
 
@@ -161,12 +164,13 @@ public class ConsoleControlEntity extends Entity {
         super.tick();
         if (level().isClientSide()) return;
 
+        // 降频检查：控制台 BE 被拆掉时丢弃控件实体。
+        // 每秒查一次足够 —— 拆方块是低频事件，且延迟 1 秒不可感知。
+        if (this.tickCount % CONSOLE_CHECK_INTERVAL != 0) return;
+
         BlockPos cp = getConsolePos();
-        if (cp != null) {
-            var be = level().getBlockEntity(cp);
-            if (!(be instanceof TardisConsoleBlockEntity)) {
-                this.discard();
-            }
+        if (cp != null && !(level().getBlockEntity(cp) instanceof TardisConsoleBlockEntity)) {
+            this.discard();
         }
     }
 
@@ -181,8 +185,8 @@ public class ConsoleControlEntity extends Entity {
         if (hand != InteractionHand.MAIN_HAND) return InteractionResult.PASS;
 
         var type = sp.isShiftKeyDown()
-                ? ConsoleControlHandler.ClickType.SNEAK_RIGHT
-                : ConsoleControlHandler.ClickType.RIGHT;
+                ? ClickType.SNEAK_RIGHT
+                : ClickType.RIGHT;
         ConsoleControlHandler.handleClick(sp, this, type);
         return InteractionResult.SUCCESS;
     }
@@ -191,15 +195,22 @@ public class ConsoleControlEntity extends Entity {
     public boolean hurtServer(ServerLevel level, DamageSource source, float amount) {
         if (source.getEntity() instanceof ServerPlayer sp) {
             var type = sp.isShiftKeyDown()
-                    ? ConsoleControlHandler.ClickType.SNEAK_LEFT
-                    : ConsoleControlHandler.ClickType.LEFT;
+                    ? ClickType.SNEAK_LEFT
+                    : ClickType.LEFT;
             ConsoleControlHandler.handleClick(sp, this, type);
         }
         return false;
     }
 
-    public @Nullable ControlHandler handler() {
-        return ControlHandlers.get(getControlTypeId());
+    /** 控件类型；id 未注册时返回 null。 */
+    public @Nullable ControlType controlType() {
+        return ControlTypes.byId(getControlTypeId());
+    }
+
+    /** 控件行为；类型未注册时返回 null。 */
+    public @Nullable ControlBehavior behavior() {
+        ControlType type = controlType();
+        return type == null ? null : type.behavior();
     }
 
     // =========================================================
