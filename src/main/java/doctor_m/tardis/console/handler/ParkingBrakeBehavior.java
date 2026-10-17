@@ -8,6 +8,8 @@ import doctor_m.tardis.console.ConsoleControlEntity;
 import doctor_m.tardis.console.ControlBehavior;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 驻车制动控件。2 档开关：0 = 解除，1 = 拉起。
@@ -25,6 +27,7 @@ public final class ParkingBrakeBehavior implements ControlBehavior {
 
     @Override
     public void onTierChanged(ServerLevel level, TardisData data, ConsoleControlEntity entity,
+                              @Nullable ServerPlayer player,
                               ClickType click, int oldTier, int newTier) {
         MinecraftServer server = level.getServer();
         if (server == null) return;

@@ -1,6 +1,6 @@
 {
   "itemGroup.doctor_m.main": "DOCTOR M",
-  "item.doctor_m.tardis_spawner": "Tardis",
+  "item.doctor_m.tardis_spawner": "TARDIS",
   "item.doctor_m.tardis_interior_door": "Interior Door",
   "item.doctor_m.tardis_console": "TARDIS Console",
 
@@ -62,5 +62,18 @@
 
   "message.doctor_m.tardis.already_flying": "§7[DM] TARDIS is already flying. Sneak-right-click to land.",
   "message.doctor_m.tardis.busy": "§7[DM] TARDIS is moving",
-  "message.doctor_m.tardis.door_locked": "§7[DM] TARDIS is flying, doors are locked"
+  "message.doctor_m.tardis.door_locked": "§7[DM] TARDIS is flying, doors are locked",
+
+  "entity.doctor_m.console_control": "Console Control",
+  "entity.doctor_m.console_control.throttle": "Throttle",
+  "entity.doctor_m.console_control.handbrake": "Handbrake",
+  "entity.doctor_m.console_control.parking_brake": "Parking Brake",
+  "entity.doctor_m.console_control.coord_x": "X Coordinate",
+  "entity.doctor_m.console_control.coord_y": "Y Coordinate",
+  "entity.doctor_m.console_control.coord_z": "Z Coordinate",
+  "entity.doctor_m.console_control.coord_step": "Coordinate Step",
+  "doctor_m.console.coord_step.actionbar": "§7Coord step §6±%s",
+  "entity.doctor_m.console_control.lever": "Lever",
+  "entity.doctor_m.console_control.button": "Button",
+  "entity.doctor_m.console_control.mode": "Mode Dial"
 }

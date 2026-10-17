@@ -5,6 +5,8 @@ import doctor_m.tardis.console.ClickType;
 import doctor_m.tardis.console.ConsoleControlEntity;
 import doctor_m.tardis.console.ControlBehavior;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 手刹控件。
@@ -22,6 +24,7 @@ public final class HandbrakeBehavior implements ControlBehavior {
 
     @Override
     public void onTierChanged(ServerLevel level, TardisData data, ConsoleControlEntity entity,
+                              @Nullable ServerPlayer player,
                               ClickType click, int oldTier, int newTier) {
         data.setHandbrake(newTier);
     }

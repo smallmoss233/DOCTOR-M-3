@@ -5,6 +5,7 @@ import doctor_m.register.DMEntityTypes;
 import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -287,6 +288,41 @@ public class ConsoleControlEntity extends Entity {
     public @Nullable ControlBehavior behavior() {
         ControlType type = controlType();
         return type == null ? null : type.behavior();
+    }
+
+    // =========================================================
+    //              名称 / ID（其它模组视角 + 名称显示）
+    // =========================================================
+
+    /**
+     * 实体显示 ID：按控件类型自动派生，例如
+     * {@code doctor_m:console_control.throttle}。
+     *
+     * <p>所有控件共用一个 EntityType，其它模组（物品浏览、指令反馈、
+     * 调试工具等）看到的默认名字全是同一个，无法区分控件。这里按实例的
+     * 控件类型改写 {@code getName} —— {@code getDisplayName()} 在没有
+     * custom name 时会走到这里，所以其它模组看到的就是派生 ID。
+     *
+     * <p><b>不占用 custom name 字段</b>：{@code setCustomName} 仍然空着，
+     * 留给之后的控件名称显示功能做玩家可见的覆盖名。
+     */
+    @Override
+    public Component getName() {
+        String typeId = getControlTypeId();
+        if (typeId.isEmpty()) return super.getName();
+        return Component.translatable("entity.doctor_m.console_control." + typeId);
+    }
+
+    /**
+     * 控件名是否对玩家可见（铭牌式显示）。<b>目前是空判断条件，恒
+     * {@code false} —— 名字完全不显示。</b>
+     *
+     * <p>之后做名称显示功能时在这里加条件（如：玩家正瞄准 / 距离阈值 /
+     * 潜行查看），显示文本取 {@link #getName()} 或 custom name；
+     * {@code ConsoleControlRenderer} 的名字渲染必须经过本条件，不允许绕过。
+     */
+    public boolean shouldShowName(@Nullable Player viewer) {
+        return false;
     }
 
     // =========================================================

@@ -62,5 +62,18 @@
 
   "message.doctor_m.tardis.already_flying": "§7[DM] 塔迪斯已在飞行中，潜行右键降落",
   "message.doctor_m.tardis.busy": "§7[DM] 塔迪斯正在移动中",
-  "message.doctor_m.tardis.door_locked": "§7[DM] 塔迪斯飞行中，门已锁定"
+  "message.doctor_m.tardis.door_locked": "§7[DM] 塔迪斯飞行中，门已锁定",
+
+  "entity.doctor_m.console_control": "控制台控件",
+  "entity.doctor_m.console_control.throttle": "油门",
+  "entity.doctor_m.console_control.handbrake": "手闸",
+  "entity.doctor_m.console_control.parking_brake": "驻车制动",
+  "entity.doctor_m.console_control.coord_x": "X坐标调整",
+  "entity.doctor_m.console_control.coord_y": "Y坐标调整",
+  "entity.doctor_m.console_control.coord_z": "Z坐标调整",
+  "entity.doctor_m.console_control.coord_step": "坐标数值增量",
+  "doctor_m.console.coord_step.actionbar": "§7坐标增量 §6±%s",
+  "entity.doctor_m.console_control.lever": "拉杆",
+  "entity.doctor_m.console_control.button": "按钮",
+  "entity.doctor_m.console_control.mode": "模式旋钮"
 }

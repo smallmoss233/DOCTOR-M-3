@@ -9,6 +9,7 @@ import doctor_m.tardis.console.ControlBehavior;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * 油门控件。
@@ -27,6 +28,7 @@ public final class ThrottleHandler implements ControlBehavior {
 
     @Override
     public void onTierChanged(ServerLevel level, TardisData data, ConsoleControlEntity entity,
+                              @Nullable ServerPlayer player,
                               ClickType click, int oldTier, int newTier) {
         MinecraftServer server = level.getServer();
         if (server == null) return;

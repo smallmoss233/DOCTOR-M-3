@@ -26,7 +26,7 @@ import java.util.UUID;
  *       不播动画不触发</li>
  *   <li>经 {@code TardisManager#setControlTier} 写全局档位并广播到该 TARDIS
  *       内所有同类型控件实体（每个实体刷新自己的动画对位字段）</li>
- *   <li>调 {@code behavior.onTierChanged}（带实体和点击类型）</li>
+ *   <li>调 {@code behavior.onTierChanged}（带实体、操作者与点击类型）</li>
  * </ol>
  *
  * <h2>一份档位，全体控制台共用</h2>
@@ -106,8 +106,8 @@ public final class ConsoleControlHandler {
                 player.getName().getString(), entity.getBoneName(),
                 oldTier, newTier, type);
 
-        // 8. 业务回调
-        behavior.onTierChanged(level, data, entity, type, oldTier, newTier);
+        // 8. 业务回调（player 用于动作栏等操作者反馈）
+        behavior.onTierChanged(level, data, entity, player, type, oldTier, newTier);
     }
 
     // =========================================================

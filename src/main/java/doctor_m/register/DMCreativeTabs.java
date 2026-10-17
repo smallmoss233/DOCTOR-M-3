@@ -25,6 +25,7 @@ public final class DMCreativeTabs {
                         .displayItems((params, output) -> {
                             output.accept(DMItems.TARDIS_SPAWNER);
                             output.accept(DMBlocks.TARDIS_INTERIOR_DOOR.asItem());
+                            output.accept(DMBlocks.TARDIS_CONSOLE.asItem());
                         })
                         .build()
         );

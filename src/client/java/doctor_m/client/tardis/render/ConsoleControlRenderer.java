@@ -26,6 +26,17 @@ import net.minecraft.client.renderer.state.level.CameraRenderState;
  *   <li>{@link #submit} 拿到状态去做实际绘制</li>
  * </ol>
  * 本渲染器不需要任何状态，直接用空的 {@link EntityRenderState}。
+ *
+ * <h2>名字显示的门槛</h2>
+ * 控件名<b>不允许像玩家铭牌那样直接常显</b>：显示必须经过条件判断
+ * （{@link ConsoleControlEntity#shouldShowName}）。目前是空判断条件 ——
+ * 恒 {@code false}，名字完全不显示。之后做控件名称显示功能时：
+ * <ul>
+ *   <li>条件加在 {@code ConsoleControlEntity#shouldShowName}（单一权威）</li>
+ *   <li>渲染文本取 {@code getName()}（按控件类型派生的 ID，如
+ *       {@code doctor_m:console_control.throttle}）或 custom name（玩家覆盖名）</li>
+ *   <li>在 {@link #submit} 里按状态绘制，不要走默认铭牌路径</li>
+ * </ul>
  */
 public class ConsoleControlRenderer
         extends EntityRenderer<ConsoleControlEntity, EntityRenderState> {
@@ -37,6 +48,15 @@ public class ConsoleControlRenderer
     @Override
     public EntityRenderState createRenderState() {
         return new EntityRenderState();
+    }
+
+    /**
+     * 名字显示门槛：恒 false（空判断条件），名字完全不显示。
+     * 之后做名称显示功能时改为调用 {@code entity.shouldShowName(viewer)}。
+     */
+    @Override
+    protected boolean shouldShowName(ConsoleControlEntity entity, double distanceToCameraSq) {
+        return false;
     }
 
     @Override
