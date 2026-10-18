@@ -1,9 +1,9 @@
 package doctor_m.tardis.console.handler;
 
-import doctor_m.tardis.TardisData;
 import doctor_m.tardis.console.ClickType;
 import doctor_m.tardis.console.ConsoleControlEntity;
 import doctor_m.tardis.console.ControlBehavior;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;

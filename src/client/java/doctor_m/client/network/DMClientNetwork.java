@@ -1,7 +1,7 @@
 package doctor_m.client.network;
 
 import doctor_m.client.gui.TardisAppearanceScreen;
-import doctor_m.client.gui.TardisInteriorScreen; // 新增导入
+import doctor_m.client.gui.TardisInteriorScreen;
 import doctor_m.network.DMNetwork;
 import mosslib.api.ClientHandlers;
 import net.minecraft.client.Minecraft;

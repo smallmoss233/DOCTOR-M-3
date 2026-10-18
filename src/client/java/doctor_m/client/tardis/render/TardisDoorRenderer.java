@@ -106,9 +106,9 @@ public class TardisDoorRenderer
                 poseStack, collector, ref,
                 sa.anim(), sa.time(),
                 state.facing, MODEL_FACING,
-                b.offsetX(), b.offsetY(), b.offsetZ(), b.scale(),
+                b.offset().x, b.offset().y, b.offset().z, b.scale(),
                 state.lightCoords,
                 rt,
-                state.fadeAlpha);   // ← 新增两个参数
+                state.fadeAlpha);
     }
 }

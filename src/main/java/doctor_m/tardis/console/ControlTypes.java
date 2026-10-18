@@ -1,10 +1,6 @@
 package doctor_m.tardis.console;
 
-import doctor_m.tardis.console.handler.CoordinateBehavior;
-import doctor_m.tardis.console.handler.HandbrakeBehavior;
-import doctor_m.tardis.console.handler.IncrementBehavior;
-import doctor_m.tardis.console.handler.ParkingBrakeBehavior;
-import doctor_m.tardis.console.handler.ThrottleHandler;
+import doctor_m.tardis.console.handler.*;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -68,6 +64,11 @@ public final class ControlTypes {
     public static final ControlType COORD_STEP = register(
             new ControlType("coord_step", 6, 0.8f, TierMode.CYCLE)
                     .behavior(new IncrementBehavior()));
+
+    /** 降落朝向罗盘：4 档 CYCLE，档位 = 外壳下次降落的朝向（北→东→南→西顺时针）。 */
+    public static final ControlType LANDING_FACING = register(
+            new ControlType("landing_facing", 4, 0.6f, TierMode.CYCLE)
+                    .behavior(new LandingFacingBehavior()));
 
     /** 拉杆：常见 2 档短行程。 */
     public static final ControlType LEVER = register(

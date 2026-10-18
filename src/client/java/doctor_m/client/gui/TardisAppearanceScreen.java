@@ -1,13 +1,13 @@
 package doctor_m.client.gui;
 
 import doctor_m.client.gui.pip.GuiBedrockModelRenderState;
-import mosslib.core.bedrock.BedrockCache;
-import mosslib.core.bedrock.BedrockModelRef;
-import mosslib.core.render.BedrockRenderPipeline;
 import doctor_m.network.SetTardisAppearancePayload;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
+import mosslib.core.bedrock.BedrockCache;
+import mosslib.core.bedrock.BedrockModelRef;
+import mosslib.core.render.BedrockRenderPipeline;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -71,7 +71,7 @@ public class TardisAppearanceScreen extends Screen {
     public TardisAppearanceScreen(Player player,
                                   UUID tardisId,
                                   Identifier originalAppearanceId) {
-        super(Component.literal("TARDIS 外观选择"));
+        super(Component.translatable("doctor_m.screen.appearance.title"));
         this.tardisId = tardisId;
         this.originalAppearanceId = originalAppearanceId;
         this.previewingId = originalAppearanceId;
@@ -85,7 +85,10 @@ public class TardisAppearanceScreen extends Screen {
 
         if (!allCategories.isEmpty()) {
             TardisAppearance original = TardisAppearanceRegistry.get(originalAppearanceId);
-            currentCategory = original != null ? original.category() : null;
+            // 注意：这里原版用的是原始 category 字符串，由于现在的 category 带有 :leader 等后缀，需要提取纯分类名来比对
+            String rawCategory = original != null ? original.category() : null;
+            currentCategory = TardisAppearanceRegistry.extractCategoryName(rawCategory);
+
             int idx = allCategories.indexOf(currentCategory);
             categoryIndex = idx >= 0 ? idx : 0;
             currentCategory = allCategories.get(categoryIndex);
@@ -126,11 +129,11 @@ public class TardisAppearanceScreen extends Screen {
         // ===== 底部按钮 =====
         int bottomBtnW = (rightW - 12) / 2;
         addRenderableWidget(Button.builder(
-                        Component.literal("应用").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD),
+                        Component.translatable("doctor_m.screen.appearance.apply").withStyle(ChatFormatting.GREEN, ChatFormatting.BOLD),
                         b -> applyAppearance())
                 .pos(rightColX, bottomBtnY).size(bottomBtnW, BTN_H).build());
         addRenderableWidget(Button.builder(
-                        Component.literal("关闭"),
+                        Component.translatable("doctor_m.screen.appearance.close"),
                         b -> onClose())
                 .pos(rightColX + bottomBtnW + 12, bottomBtnY).size(bottomBtnW, BTN_H).build());
     }
@@ -164,8 +167,6 @@ public class TardisAppearanceScreen extends Screen {
         TardisAppearance app = TardisAppearanceRegistry.get(previewingId);
         if (app == null) return;
 
-        // 先把这套外观引用的几何 / 动画读进缓存，问题在开发者日志里立刻可见，
-        // 而不是等到穿门时才发现模型是空的。
         List<String> problems = BedrockCache.warmUp(previewingId);
         if (!problems.isEmpty()) {
             LOGGER.warn("[TARDIS] appearance {} applied with asset problems: {}",
@@ -187,7 +188,6 @@ public class TardisAppearanceScreen extends Screen {
     //                      渲染
     // ============================================================
 
-    /** 禁掉原版背景（模糊/菜单底图）。 */
     @Override
     public void extractBackground(GuiGraphicsExtractor ctx, int mouseX, int mouseY, float a) {
         // 留空
@@ -228,7 +228,7 @@ public class TardisAppearanceScreen extends Screen {
 
         if (allCategories.isEmpty()) {
             ctx.centeredText(this.font,
-                    Component.literal("没有可用的外观").withStyle(ChatFormatting.RED),
+                    Component.translatable("doctor_m.screen.appearance.empty").withStyle(ChatFormatting.RED),
                     px + PANEL_W / 2, py + PANEL_H / 2, 0xFFFFFFFF);
             super.extractRenderState(ctx, mouseX, mouseY, a);
             return;
@@ -241,10 +241,8 @@ public class TardisAppearanceScreen extends Screen {
         if (previewApp != null && previewApp.exterior() instanceof TardisAsset.Bedrock b) {
             BedrockModelRef ref = BedrockRenderPipeline.resolve(b.geometry(), b.texture());
             if (ref != null) {
-                // 20 秒转一圈
                 float yaw = (System.currentTimeMillis() % 20000L) / 20000f * 360f;
 
-                // 注意：这里 addPicturesInPictureState 的坐标是 GUI 逻辑像素
                 ctx.guiRenderState.addPicturesInPictureState(
                         new GuiBedrockModelRenderState(
                                 ref.geometry(), ref.sprite(), yaw,
@@ -256,24 +254,25 @@ public class TardisAppearanceScreen extends Screen {
 
         // ===== 右侧：当前外观 =====
         TardisAppearance preview = TardisAppearanceRegistry.get(previewingId);
-        String displayName = preview != null ? preview.displayName() : "?";
+
+        // 获取已本地化的名称组件，找不到翻译时会自动回退到 JSON 里的 displayName
+        Component displayName = preview != null ? preview.getDisplayName() : Component.literal("?");
         boolean isVariant  = preview != null && preview.variant();
         boolean isOriginal = Objects.equals(previewingId, originalAppearanceId);
 
-        MutableComponent nameText = Component.literal("当前外观：").withStyle(ChatFormatting.GRAY)
-                .append(Component.literal(displayName).withStyle(ChatFormatting.WHITE));
+        MutableComponent nameText = Component.translatable("doctor_m.screen.appearance.current").withStyle(ChatFormatting.GRAY)
+                .append(displayName.copy().withStyle(ChatFormatting.WHITE));
         if (isOriginal) {
             nameText.append(Component.literal("  ").append(
-                    Component.literal("(已应用)").withStyle(ChatFormatting.GREEN)));
+                    Component.translatable("doctor_m.screen.appearance.applied").withStyle(ChatFormatting.GREEN)));
         }
         ctx.text(this.font, nameText,
                 rightColX, panelY + HEADER_H + PAD, 0xFFFFFFFF);
 
-        String catLabel = currentCategory == null
-                ? TardisAppearanceRegistry.UNCATEGORIZED : currentCategory;
+        Component catLabel = TardisAppearanceRegistry.getCategoryComponent(currentCategory);
         ctx.text(this.font,
-                Component.literal("分类：").withStyle(ChatFormatting.GRAY)
-                        .append(Component.literal(catLabel).withStyle(ChatFormatting.WHITE)),
+                Component.translatable("doctor_m.screen.appearance.category").withStyle(ChatFormatting.GRAY)
+                        .append(catLabel.copy().withStyle(ChatFormatting.WHITE)),
                 rightColX, panelY + HEADER_H + PAD + 16, 0xFFFFFFFF);
 
         // 分隔线
@@ -282,10 +281,10 @@ public class TardisAppearanceScreen extends Screen {
 
         // ===== 两组切换的标签 =====
         ctx.text(this.font,
-                Component.literal("组切换").withStyle(ChatFormatting.GRAY),
+                Component.translatable("doctor_m.screen.appearance.group_switch").withStyle(ChatFormatting.GRAY),
                 rightColX, groupSwitchY + 6, 0xFFFFFFFF);
         ctx.text(this.font,
-                Component.literal("组内循环").withStyle(ChatFormatting.GRAY),
+                Component.translatable("doctor_m.screen.appearance.group_cycle").withStyle(ChatFormatting.GRAY),
                 rightColX, inGroupBtnY + 6, 0xFFFFFFFF);
 
         // ===== 信息区 =====
@@ -293,16 +292,16 @@ public class TardisAppearanceScreen extends Screen {
         int infoY = infoBoxY + 8;
         if (isVariant) {
             ctx.text(this.font,
-                    Component.literal("★ 变体外观").withStyle(ChatFormatting.GOLD),
+                    Component.translatable("doctor_m.screen.appearance.variant").withStyle(ChatFormatting.GOLD),
                     rightColX + 8, infoY, 0xFFFFFFFF);
             infoY += 14;
         }
         ctx.text(this.font,
-                Component.literal("ID: " + previewingId).withStyle(ChatFormatting.GRAY),
+                Component.translatable("doctor_m.screen.appearance.id", previewingId.toString()).withStyle(ChatFormatting.GRAY),
                 rightColX + 8, infoY, 0xFFFFFFFF);
         infoY += 14;
         ctx.text(this.font,
-                Component.literal("(作者 / 描述 / 其它)").withStyle(ChatFormatting.DARK_GRAY),
+                Component.translatable("doctor_m.screen.appearance.info_placeholder").withStyle(ChatFormatting.DARK_GRAY),
                 rightColX + 8, infoY, 0xFFFFFFFF);
 
         // ===== 底部分隔线 =====

@@ -7,9 +7,7 @@ import doctor_m.tardis.console.TardisConsoleAppearance;
 import doctor_m.tardis.console.TardisConsoleRegistry;
 import mosslib.core.bedrock.BedrockCache;
 import mosslib.core.bedrock.BedrockGeometryModel;
-import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-import net.minecraft.world.phys.AABB;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -203,10 +203,10 @@ public final class BedrockParser {
         return new BedrockGeometryModel(tex, tw, th, List.copyOf(roots), Map.copyOf(map));
     }
 
-        private static BedrockGeometryModel.Bone parseBone(JsonObject b,
-                                                           BedrockAxes ax,
-                                                           Diagnostics d,
-                                                           int texW, int texH) {
+    private static BedrockGeometryModel.Bone parseBone(JsonObject b,
+                                                       BedrockAxes ax,
+                                                       Diagnostics d,
+                                                       int texW, int texH) {
         if (b == null) {
             d.invalidBones++;
             return null;
@@ -413,6 +413,11 @@ public final class BedrockParser {
             flipV = rawH < 0f;
             if (flipU) { u += rawW; rawW = -rawW; }
             if (flipV) { v += rawH; rawH = -rawH; }
+
+            if ("up".equals(face) || "down".equals(face)) {
+                flipU = !flipU && rawW != 0f;
+                flipV = !flipV && rawH != 0f;
+            }
 
             w = rawW == 0f ? def[0] : rawW;
             h = rawH == 0f ? def[1] : rawH;

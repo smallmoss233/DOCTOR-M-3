@@ -1,5 +1,6 @@
 {
   "display_name": "Suitcase",
+  "variant": true,
   "exterior": {
     "type": "bedrock",
     "geometry":  "doctor_m:bedrockmodel/exterior/suitcase/suitcase.geo",

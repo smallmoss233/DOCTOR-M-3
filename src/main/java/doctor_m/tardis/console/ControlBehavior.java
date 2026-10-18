@@ -1,6 +1,6 @@
 package doctor_m.tardis.console;
 
-import doctor_m.tardis.TardisData;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;

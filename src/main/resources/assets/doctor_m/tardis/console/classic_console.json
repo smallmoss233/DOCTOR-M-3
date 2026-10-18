@@ -22,6 +22,11 @@
       "type": "parking_brake",
       "tiers": 2,
       "animation": "animation.console.parking_brake"
+    },
+    "朝向控制": {
+      "type": "landing_facing",
+      "tiers": 4,
+      "animation": "animation.console.landing_facing"
     }
   }
 }

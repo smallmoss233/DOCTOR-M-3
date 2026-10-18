@@ -1,10 +1,10 @@
 package doctor_m.tardis.console.handler;
 
-import doctor_m.tardis.TardisData;
 import doctor_m.tardis.console.ClickType;
 import doctor_m.tardis.console.ConsoleControlEntity;
 import doctor_m.tardis.console.ControlBehavior;
 import doctor_m.tardis.console.ControlTypes;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.game.ClientboundSetActionBarTextPacket;
 import net.minecraft.server.level.ServerLevel;

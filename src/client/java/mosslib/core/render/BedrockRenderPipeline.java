@@ -2,8 +2,8 @@ package mosslib.core.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import mosslib.core.bedrock.BedrockAnimationModel;
-import mosslib.core.bedrock.BedrockGeometryModel;
 import mosslib.core.bedrock.BedrockCache;
+import mosslib.core.bedrock.BedrockGeometryModel;
 import mosslib.core.bedrock.BedrockModelRef;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.SubmitNodeCollector;

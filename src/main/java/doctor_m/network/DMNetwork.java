@@ -1,9 +1,9 @@
 package doctor_m.network;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
-import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
+import doctor_m.tardis.data.TardisData;
 import mosslib.core.api.PayloadRegistrar;
 import mosslib.core.api.ServerHandlers;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;

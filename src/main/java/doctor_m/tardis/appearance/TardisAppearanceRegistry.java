@@ -1,28 +1,17 @@
 package doctor_m.tardis.appearance;
 
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public final class TardisAppearanceRegistry {
 
     private TardisAppearanceRegistry() {}
 
     private static volatile Map<Identifier, TardisAppearance> APPEARANCES = Map.of();
-
-    /** UI 层用来表示未分类的显示名。不要写进 JSON——JSON 里 category 为空 = null = 未分类。 */
-    public static final String UNCATEGORIZED = "未分类";
-
-    /**
-     * 分类的固定显示顺序。
-     * 不在这个列表里的分类，按名字字母序排在后面。
-     * 未分类（category == null）永远排最后。
-     */
-    private static final List<String> CATEGORY_ORDER = List.of(
-            "警亭",
-            "灯塔",
-            "蛋糕"
-    );
+    private static volatile List<String> CACHED_CATEGORIES = List.of();
 
     public static TardisAppearance get(Identifier id) {
         if (id == null) return null;
@@ -33,50 +22,121 @@ public final class TardisAppearanceRegistry {
         return APPEARANCES;
     }
 
-    public static void setAll(Map<Identifier, TardisAppearance> map) {
+    public static synchronized void setAll(Map<Identifier, TardisAppearance> map) {
         APPEARANCES = map;
+        CACHED_CATEGORIES = computeAllCategories(map);
     }
 
-    // ============================================================
-    //                      分类查询
-    // ============================================================
+    public static List<String> allCategories() {
+        return CACHED_CATEGORIES;
+    }
 
     /**
-     * 按 {@link #CATEGORY_ORDER} 排序返回所有分类。
-     * 未分类（null）排最后，UI 层显示用 {@link #UNCATEGORIZED}。
+     * 计算所有存在的分类，并自动排序。
      */
-    public static List<String> allCategories() {
-        Set<String> present = new LinkedHashSet<>();
-        for (TardisAppearance a : APPEARANCES.values()) {
-            present.add(a.category());   // 可能是 null
+    private static List<String> computeAllCategories(Map<Identifier, TardisAppearance> map) {
+        Set<String> present = new HashSet<>();
+        for (TardisAppearance a : map.values()) {
+            if (a.category() != null) {
+                present.add(extractCategoryName(a.category()));
+            }
         }
 
-        List<String> result = new ArrayList<>();
+        List<String> sortedList = present.stream()
+                .sorted((c1, c2) -> {
+                    int p1 = getCategoryWeight(c1);
+                    int p2 = getCategoryWeight(c2);
+                    if (p1 != p2) return Integer.compare(p1, p2);
+                    return c1.compareTo(c2);
+                })
+                .collect(Collectors.toList());
 
-        // 1) 硬编码顺序里的
-        for (String c : CATEGORY_ORDER) {
-            if (present.remove(c)) result.add(c);
+        boolean hasNull = map.values().stream().anyMatch(a -> a.category() == null);
+        if (hasNull) {
+            sortedList.add(null);
         }
 
-        // 2) 剩下的按字母序
-        List<String> rest = new ArrayList<>(present);
-        rest.remove(null);
-        rest.sort(Comparator.naturalOrder());
-        result.addAll(rest);
-
-        // 3) 未分类最后
-        if (present.contains(null)) result.add(null);
-
-        return result;
+        return Collections.unmodifiableList(sortedList);
     }
 
-    /** 某分类下的所有外观，按 id 字母序。category 传 null = 未分类。 */
-    public static List<TardisAppearance> byCategory(String category) {
+    /** 提取权重： "01_police_box" -> 1, "警亭" -> 999 */
+    private static int getCategoryWeight(String category) {
+        if (category == null || category.isEmpty()) return 999;
+        if (category.matches("^\\d+_.*")) {
+            try {
+                return Integer.parseInt(category.substring(0, category.indexOf('_')));
+            } catch (NumberFormatException ignored) {}
+        }
+        return 999;
+    }
+
+    /**
+     * 解析真实分类名（去掉数字前缀，去掉 :leader 等后缀）。
+     * "01_警亭:leader" -> "警亭"
+     */
+    public static String extractCategoryName(String rawCategory) {
+        if (rawCategory == null) return null;
+        String name = rawCategory;
+        // 去掉特殊标记（冒号后面的内容）
+        int colonIndex = name.indexOf(':');
+        if (colonIndex != -1) {
+            name = name.substring(0, colonIndex);
+        }
+        // 去掉数字前缀
+        if (name.matches("^\\d+_.*")) {
+            name = name.substring(name.indexOf('_') + 1);
+        }
+        return name;
+    }
+
+    /**
+     * 获取 UI 渲染用的文本（自动本地化）。
+     */
+    public static Component getCategoryComponent(String rawCategory) {
+        if (rawCategory == null) {
+            return Component.translatable("doctor_m.appearance.category.uncategorized");
+        }
+        String cleanId = extractCategoryName(rawCategory);
+        // 直接使用 translatableWithFallback，如果 lang 文件里没配，就显示 cleanId
+        return Component.translatableWithFallback(
+                "doctor_m.appearance.category." + cleanId,
+                cleanId
+        );
+    }
+
+    /**
+     * 获取某分类下的所有外观。
+     * 规则：组长带 :leader 标记的优先排前面，多个组长按 ID 的 A-Z / 0-9 排序。
+     */
+    public static List<TardisAppearance> byCategory(String targetCleanCategory) {
         List<TardisAppearance> list = new ArrayList<>();
         for (TardisAppearance a : APPEARANCES.values()) {
-            if (Objects.equals(a.category(), category)) list.add(a);
+            if (a.category() != null && Objects.equals(extractCategoryName(a.category()), targetCleanCategory)) {
+                list.add(a);
+            } else if (a.category() == null && targetCleanCategory == null) {
+                list.add(a);
+            }
         }
-        list.sort(Comparator.comparing(a -> a.id().toString()));
+
+        // 排序规则
+        list.sort((a1, a2) -> {
+            boolean isLeader1 = isLeader(a1.category());
+            boolean isLeader2 = isLeader(a2.category());
+
+            // 1. 组长优先
+            if (isLeader1 && !isLeader2) return -1;
+            if (!isLeader1 && isLeader2) return 1;
+
+            // 2. 如果都是组长，或者都是普通成员，按 ID 字母序排
+            return a1.id().toString().compareTo(a2.id().toString());
+        });
+
         return list;
+    }
+
+    /** 判断该外观是否是组长 */
+    public static boolean isLeader(String rawCategory) {
+        if (rawCategory == null) return false;
+        return rawCategory.contains(":leader");
     }
 }

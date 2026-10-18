@@ -1,8 +1,8 @@
 package doctor_m.tardis.console;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
-import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;

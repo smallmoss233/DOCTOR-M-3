@@ -1,6 +1,6 @@
 package doctor_m.stp;
 
-import doctor_m.tardis.TardisData;
+import doctor_m.tardis.data.TardisData;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.buffer.Unpooled;
 import mosslib.core.dimension.DimensionTemplate;

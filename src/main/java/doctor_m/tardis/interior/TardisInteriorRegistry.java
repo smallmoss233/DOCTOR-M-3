@@ -1,4 +1,4 @@
-package doctor_m.tardis;
+package doctor_m.tardis.interior;
 
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;

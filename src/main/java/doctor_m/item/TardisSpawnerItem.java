@@ -2,8 +2,8 @@ package doctor_m.item;
 
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.register.DMBlocks;
-import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;

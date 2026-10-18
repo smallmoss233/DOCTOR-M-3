@@ -1,4 +1,4 @@
-package doctor_m.tardis;
+package doctor_m.tardis.data;
 
 import com.mojang.serialization.Codec;
 import net.minecraft.resources.Identifier;

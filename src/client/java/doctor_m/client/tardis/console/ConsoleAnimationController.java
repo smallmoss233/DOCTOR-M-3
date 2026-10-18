@@ -2,8 +2,8 @@ package doctor_m.client.tardis.console;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.tardis.console.ConsoleBoneMatcher;
-import doctor_m.tardis.console.ControlConfig;
 import doctor_m.tardis.console.ConsoleControlEntity;
+import doctor_m.tardis.console.ControlConfig;
 import doctor_m.tardis.console.TardisConsoleAppearance;
 import mosslib.core.bedrock.BedrockAnimationModel;
 import mosslib.core.render.BedrockModelRenderer;

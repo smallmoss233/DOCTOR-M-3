@@ -1,20 +1,21 @@
-package doctor_m.tardis;
+package doctor_m.tardis.interior;
 
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.register.DMBlocks;
+import doctor_m.tardis.TardisManager;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructurePlaceSettings;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplateManager;
-import net.minecraft.util.RandomSource;
-
 import org.jetbrains.annotations.Nullable;
 
 /**

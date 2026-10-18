@@ -2,8 +2,8 @@ package doctor_m.tardis.console;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.register.DMEntityTypes;
-import doctor_m.tardis.TardisData;
 import doctor_m.tardis.TardisManager;
+import doctor_m.tardis.data.TardisData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
