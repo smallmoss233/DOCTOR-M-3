@@ -19,9 +19,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.Vec3;
 
-/**
- * TARDIS 飞行系统：包含状态机流转（起飞/降落/坠机）、位移计算、以及外壳动画与音效。
- */
 public final class TardisFlight {
 
     private TardisFlight() {}
@@ -30,63 +27,34 @@ public final class TardisFlight {
     //                      状态系统常量
     // ================================================================
 
-    /**
-     * 起飞时长 = DEMAT 音效的"有效时长"（18 秒）。
-     * 音频文件本身 21 秒，但末尾约 3 秒没有内容，砍掉后正好无缝衔接飞行循环声。
-     */
     private static final int TAKEOFF_TICKS = 360;
-    /**
-     * 降落时长 = MAT 音效的"有效时长"（20 秒）。
-     * 音频文件本身 23 秒，末尾约 3 秒静音，忽略。
-     */
     private static final int LANDING_TICKS = 400;
-    /** 坠机时长。比正常降落短得多 —— 强制就地砸下来。 */
     private static final int CRASH_TICKS = 100;
-    /** 飞行循环音效间隔 = FLY 音效时长。 */
     private static final int FLYING_SOUND_INTERVAL = 50;
-    /** 起飞后多久开始淡出门（tick）。前 30 tick 用于关门动画。 */
     private static final int FADE_START_DELAY = 30;
 
-    /**
-     * 静默方块操作标记：同步到客户端（2）+ 压掉掉落物（16，走 movedByPiston 语义），
-     * 刻意不含邻居更新（1）—— 起飞拆外壳时不会触发
-     * AbstractTardisDoorBlock#onRemove 的连锁反应（掉另一半、关门声、破坏粒子），
-     * 外面的人看到的就是外壳淡出后安静消失。
-     */
     private static final int SILENT_FLAGS = 2 | 16;
 
     // ================================================================
     //                      速度与位移计算
     // ================================================================
 
-    /** 档位对应的速度（格/tick）。档位 ≤ 0 返回 0。 */
     public static double speedOf(int throttle) {
         return speedOf(throttle, 0);
     }
 
-    /**
-     * 档位 + 手刹对应的速度（格/tick）。油门 ≤ 0 返回 0。
-     *
-     * <p>手刹每档折半：{@code base / 2^handbrake}（手刹 3 档 = 1/8 速）。
-     */
     public static double speedOf(int throttle, int handbrake) {
         if (throttle <= 0) return 0;
-        // 2 × 2^tier：1→4, 2→8, 3→16, 4→32
         double base = 2.0 * (1 << throttle);
         return handbrake > 0 ? base / (1 << Math.min(handbrake, 3)) : base;
     }
 
-    /**
-     * 位移处理：更新 {@code exteriorPos} 朝目的地移动。
-     * 只在状态机流转的 FLYING 阶段被调用。
-     */
     private static void tickMovement(MinecraftServer server, TardisData data) {
         int throttle = data.throttle();
         double speed = speedOf(throttle, data.handbrake());
         if (speed <= 0) return;
         if (!data.hasDestination()) return;
 
-        // 跨维度暂不处理：位置只在本维度有意义，直接返回等玩家手动切。
         if (!data.exteriorDim().equals(data.targetDim())) return;
 
         BlockPos current = data.exteriorPos();
@@ -99,18 +67,10 @@ public final class TardisFlight {
 
         if (distance < 1e-4) return;
 
-        Vec3 step;
-        if (distance <= speed) {
-            // 本 tick 能到 → 吸附到位，避免高速越过目标来回震荡
-            step = delta;
-        } else {
-            step = delta.normalize().scale(speed);
-        }
-
+        Vec3 step = (distance <= speed) ? delta : delta.normalize().scale(speed);
         Vec3 next = from.add(step);
         BlockPos nextPos = BlockPos.containing(next);
 
-        // 位置变了才写，避免无意义 dirty 标记
         if (!nextPos.equals(current)) {
             data.setExterior(data.exteriorDim(), nextPos, data.exteriorFacing());
         }
@@ -135,9 +95,17 @@ public final class TardisFlight {
     public static boolean startLanding(MinecraftServer server, TardisData data) {
         if (data.state() != TardisState.FLYING) return false;
 
+        // 【修复 2】立即结算目的地坐标，让塔迪斯瞬间移动到最终降落点
+        applyDestination(server, data);
+
+        // 【修复 1 & 3】立即在目标位置放置外壳门，并触发淡入（耗时 60 tick / 3 秒）
+        // 这样在 20 秒的降落音效播放期间，门就已经提前逐渐显形了
+        placeExteriorDoor(server, data);
+
         data.setState(TardisState.LANDING, LANDING_TICKS);
         TardisManager.getRegistry(server).setDirty();
 
+        // 【修复 2 & 3】在更新后的目标坐标播放音效，彻底解决“错位幽灵声”和“外面听到内部声”的问题
         playTardisSound(server, data, DMSounds.MAT, 1.0f, 1.0f);
         return true;
     }
@@ -147,18 +115,18 @@ public final class TardisFlight {
 
         data.clearDestination();
         data.setThrottle(0);
+
+        // 坠机同样是立即就地放置门
+        applyDestination(server, data);
+        placeExteriorDoor(server, data);
+
         data.setState(TardisState.LANDING, CRASH_TICKS);
         TardisManager.getRegistry(server).setDirty();
 
-        // MAT 低音调 = 坠毁感
         playTardisSound(server, data, DMSounds.MAT, 1.4f, 0.6f);
         return true;
     }
 
-    /**
-     * 状态机主 tick。同时包含位移计算、动画过渡与音效。
-     * （原先的 TardisFlight.tick 与 TardisFlightManager.tickFlight 合并于此）
-     */
     public static void tick(MinecraftServer server, TardisData data) {
         TardisState s = data.state();
         int t = data.stateTicks() - 1;
@@ -174,8 +142,6 @@ public final class TardisFlight {
                 }
 
                 if (t <= 0) {
-                    // stateTicks=0 → 下一个 FLYING tick 立刻播第一声 FLY，
-                    // DEMAT 有效内容（18s）结束的瞬间无缝衔接飞行循环声
                     data.setState(TardisState.FLYING, 0);
                     TardisManager.getRegistry(server).setDirty();
                 } else {
@@ -183,17 +149,14 @@ public final class TardisFlight {
                 }
             }
             case FLYING -> {
-                // 1. 先跑位移
                 tickMovement(server, data);
 
-                // 2. 油门归零 → 触发降落
                 if (data.throttle() == 0) {
                     startLanding(server, data);
                     TardisManager.getRegistry(server).setDirty();
                     return;
                 }
 
-                // 3. 循环音效
                 if (t <= 0) {
                     playTardisSound(server, data, DMSounds.FLY, 0.8f, 1.0f);
                     data.setStateTicks(FLYING_SOUND_INTERVAL);
@@ -202,9 +165,8 @@ public final class TardisFlight {
                 }
             }
             case LANDING -> {
+                // 门已经提前放好了，这里只需要等待降落倒计时结束即可
                 if (t <= 0) {
-                    applyDestination(server, data);
-                    placeExteriorDoor(server, data);
                     data.setState(TardisState.LANDED, 0);
                     data.setThrottle(0);
                     TardisManager.getRegistry(server).setDirty();
@@ -272,7 +234,7 @@ public final class TardisFlight {
             be.setTardisId(data.id());
             be.setAppearance(data.appearanceId());
             be.setExterior(true);
-            be.startFadeIn();
+            be.startFadeIn(); // 这里开始淡入，耗时 60 tick，彻底满足降落实体提前现形
         }
     }
 
@@ -281,11 +243,13 @@ public final class TardisFlight {
     // ================================================================
 
     private static void playTardisSound(MinecraftServer server, TardisData data, SoundEvent sound, float volume, float pitch) {
+        // 1. 内部维度音效
         ServerLevel interior = TardisManager.getInteriorLevel(server, data);
         if (interior != null) {
             BlockPos center = data.interiorPos();
             interior.playSound(null, center.getX() + 0.5, center.getY() + 1.0, center.getZ() + 0.5, sound, SoundSource.BLOCKS, volume, pitch);
         }
+        // 2. 外部维度音效（严格使用更新后的 exteriorPos 播放）
         if (data.exteriorDim() != null && data.exteriorPos() != null) {
             ServerLevel exterior = server.getLevel(data.exteriorDim());
             if (exterior != null) {
