@@ -96,6 +96,7 @@
   "doctor_m.appearance.name.doctor_m.x_police_box": "X的蓝盒子",
   "doctor_m.appearance.name.doctor_m.tt_capsule": "原始TT仓",
   "doctor_m.appearance.name.doctor_m.suitcase": "手提箱",
+  "doctor_m.appearance.name.doctor_m.tt_nanometer": "纳米塔迪斯",
 
   "doctor_m.command.debug.list.empty": "§7[DM] 无动态维度",
   "doctor_m.command.debug.list.header": "§7[DM] 共 §b%s§7 个动态维度：",

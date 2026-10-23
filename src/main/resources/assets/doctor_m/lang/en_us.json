@@ -96,7 +96,7 @@
   "doctor_m.appearance.name.doctor_m.x_police_box": "X's Blue Box",
   "doctor_m.appearance.name.doctor_m.tt_capsule": "Original TT Capsule",
   "doctor_m.appearance.name.doctor_m.suitcase": "Suitcase",
-
+  "doctor_m.appearance.name.doctor_m.tt_nanometer": "Nanometer TARDIS",
   "doctor_m.command.debug.list.empty": "§7[DM] No dynamic dimensions",
   "doctor_m.command.debug.list.header": "§7[DM] Dynamic dimensions (§b%s§7):",
   "doctor_m.command.debug.list.entry": "  §b%s§r | players %s | entities %s | chunks %s | %s %s",
