@@ -110,10 +110,33 @@ public class TardisDoorBlockEntity extends BlockEntity {
         syncToClient();
     }
 
-    /** 客户端每 tick 调用一次。 */
+    /** 客户端每 tick 调用一次：推进本地动画。 */
     public void clientTick() {
         if (fadeTicks > 0) {
             fadeTicks--;
+        }
+    }
+
+    /**
+     * 服务端每 tick 调用一次：推进同一份倒计时。
+     *
+     * <p><b>为什么服务端也要走这个倒计时</b>：过渡状态会随 {@link #getUpdateTag()}
+     * 同步给客户端。若服务端不推进，{@code fadeTicks} 会永远停在
+     * {@link #FADE_DURATION}，之后任何一次同步（右键开关门、外观切换……）都会把
+     * 这份「开场淡入」重发给客户端 —— 表现就是每次开关门都重播一遍显形动画。
+     *
+     * <p>走到 0 时把 {@code fadeFrom} 归一到 {@code fadeTo}，让状态彻底变成中性：
+     * 此后同步出去的永远是「无过渡」，不会再有残留动画。
+     *
+     * <p>这里<b>不发网络包</b>：客户端自己也在递减，两边最终都会到 0；
+     * 下一次自然同步时带出去的已经是中性值。
+     */
+    public void serverTick() {
+        if (fadeTicks <= 0) return;
+        fadeTicks--;
+        if (fadeTicks == 0) {
+            fadeFrom = fadeTo;
+            setChanged();
         }
     }
 

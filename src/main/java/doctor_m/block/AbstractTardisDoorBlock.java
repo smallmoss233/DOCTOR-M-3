@@ -282,10 +282,18 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
     public <T extends BlockEntity> net.minecraft.world.level.block.entity.BlockEntityTicker<T> getTicker(
             Level level, BlockState state,
             net.minecraft.world.level.block.entity.BlockEntityType<T> type) {
-        if (!level.isClientSide()) return null;
+        // 两端都要 tick：客户端推进淡入淡出动画，服务端也要推进同一个倒计时。
+        //
+        // 【为什么服务端必须 tick】淡入淡出的过渡状态会随 getUpdateTag() 同步给客户端。
+        // 如果只有客户端递减，服务端的 fadeTicks 会永远停在 FADE_DURATION，之后任何一次
+        // 同步（例如右键开关门）都会把这份"过期的开场状态"重发给客户端 —— 表现就是
+        // 每次开关门都重新播一遍淡入。服务端跟着递减到 0 之后，同步出去的就是中性状态。
         return (lvl, pos, st, be) -> {
-            if (be instanceof TardisDoorBlockEntity door) {
+            if (!(be instanceof TardisDoorBlockEntity door)) return;
+            if (lvl.isClientSide()) {
                 door.clientTick();
+            } else {
+                door.serverTick();
             }
         };
     }
