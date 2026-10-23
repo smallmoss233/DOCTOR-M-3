@@ -15,7 +15,7 @@
     "type": "bedrock",
     "geometry":  "doctor_m:bedrockmodel/exterior/blue_box/blue_box_interior.geo",
     "animation": "doctor_m:bedrockmodel/animation/blue_box/blue_box_interior.animation",
-    "texture":   "doctor_m:block/tardis/blue_box",
+    "texture":   "doctor_m:block/tardis/blue_box_interior",
     "open":      "blue_box_interior_open",
     "close":     "blue_box_interior_close",
     "offset":    [0, 0, 0],
