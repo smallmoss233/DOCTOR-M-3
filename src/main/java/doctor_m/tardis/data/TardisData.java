@@ -1,9 +1,9 @@
 package doctor_m.tardis.data;
 
 import com.mojang.serialization.Codec;
-import doctor_m.tardis.console.ControlType;
-import doctor_m.tardis.console.ControlTypes;
-import doctor_m.tardis.console.handler.IncrementBehavior;
+import doctor_m.tardis.console.control.ControlType;
+import doctor_m.tardis.console.control.ControlTypes;
+import doctor_m.tardis.console.control.behavior.IncrementBehavior;
 import mosslib.core.api.MossLibCodec;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;

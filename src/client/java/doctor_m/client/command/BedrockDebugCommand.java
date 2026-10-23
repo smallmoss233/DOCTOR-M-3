@@ -3,7 +3,9 @@ package doctor_m.client.command;
 import com.mojang.brigadier.CommandDispatcher;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
+import doctor_m.client.tardis.appearance.TardisAppearanceAssets;
 import mosslib.core.bedrock.BedrockCache;
+import mosslib.util.Text;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommands;
 import net.fabricmc.fabric.api.client.command.v2.FabricClientCommandSource;
@@ -97,13 +99,13 @@ public final class BedrockDebugCommand {
             return 0;
         }
 
-        header(source, Component.translatable("doctor_m.command.debug.bedrock.check_header", all.size()).getString());
+        header(source, Text.tr("doctor_m.command.debug.bedrock.check_header", all.size()).getString());
 
         int bad = 0;
         List<Identifier> failed = new ArrayList<>();
 
         for (TardisAppearance app : all.values()) {
-            List<String> problems = BedrockCache.warmUp(app.id());
+            List<String> problems = TardisAppearanceAssets.warmUp(app);
             if (problems.isEmpty()) continue;
 
             bad++;
@@ -117,10 +119,10 @@ public final class BedrockDebugCommand {
         }
 
         if (bad == 0) {
-            source.sendFeedback(Component.translatable("doctor_m.command.debug.bedrock.all_good", all.size())
+            source.sendFeedback(Text.tr("doctor_m.command.debug.bedrock.all_good", all.size())
                     .withStyle(ChatFormatting.GREEN));
         } else {
-            source.sendFeedback(Component.translatable("doctor_m.command.debug.bedrock.some_bad", bad, all.size())
+            source.sendFeedback(Text.tr("doctor_m.command.debug.bedrock.some_bad", bad, all.size())
                     .withStyle(ChatFormatting.YELLOW));
         }
         return bad == 0 ? 1 : 0;

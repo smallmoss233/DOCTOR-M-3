@@ -1,5 +1,9 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
+import doctor_m.tardis.console.TardisConsoleRegistry;
+import doctor_m.tardis.console.TardisConsoleAppearance;
+import doctor_m.tardis.console.ConsoleControlLayout;
+import doctor_m.tardis.console.ConsoleBoneMatcher;
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.register.DMEntityTypes;
 import doctor_m.tardis.TardisManager;

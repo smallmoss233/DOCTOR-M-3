@@ -1,6 +1,6 @@
 package doctor_m.register;
 
-import doctor_m.tardis.console.ConsoleControlEntity;
+import doctor_m.tardis.console.control.ConsoleControlEntity;
 import mosslib.core.api.AutoRegister;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;

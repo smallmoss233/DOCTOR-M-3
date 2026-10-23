@@ -1,4 +1,4 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
 /**
  * 挡位到顶后的行为。

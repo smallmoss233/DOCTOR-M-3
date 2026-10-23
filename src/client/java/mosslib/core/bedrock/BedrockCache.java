@@ -2,9 +2,6 @@ package mosslib.core.bedrock;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import doctor_m.tardis.appearance.TardisAppearance;
-import doctor_m.tardis.appearance.TardisAppearanceRegistry;
-import doctor_m.tardis.appearance.TardisAsset;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.client.Minecraft;
@@ -35,7 +32,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <h2>失败可诊断</h2>
  * 加载失败不再只是"打一行日志然后模型凭空消失"，而是记录在案，
- * 可用 {@link #report()} 与 {@link #warmUp(Identifier)} 查询。
+ * 可用 {@link #report()} 与 {@link #warmUp(Identifier, Identifier, String...)} 查询。
  */
 public final class BedrockCache {
 
@@ -274,42 +271,39 @@ public final class BedrockCache {
     }
 
     /**
-     * 主动加载某个外观当前引用的全部资源，用于在应用外观前暴露问题
-     * （例如动画名拼错、几何文件缺失）。
+     * 主动加载一组资源，把问题一次性暴露出来（动画名拼错、几何文件缺失……）。
      *
-     * @return 问题描述列表；一切正常时为空
+     * <p><b>刻意不认识"外观"这个概念</b>：本类属于技术库，不应依赖任何模组内容。
+     * 调用方（模组）自己把外观解析成"几何 / 动画 / 需要的片段名"再传进来。
+     *
+     * @param geometry  几何资源；null 表示不检查
+     * @param animation 动画资源；null 表示不检查
+     * @param clipNames 期望存在于该动画文件中的片段名；可传空
+     * @return 问题描述；一切正常时为空
      */
-    public static List<String> warmUp(Identifier appearanceId) {
+    public static List<String> warmUp(Identifier geometry,
+                                      Identifier animation,
+                                      String... clipNames) {
         List<String> problems = new ArrayList<>();
-        TardisAppearance app = TardisAppearanceRegistry.get(appearanceId);
-        if (app == null) {
-            problems.add("unknown appearance " + appearanceId);
-            return problems;
-        }
-        warmUpAsset(app.exterior(), problems);
-        warmUpAsset(app.interior(), problems);
-        return problems;
-    }
 
-    private static void warmUpAsset(TardisAsset asset, List<String> problems) {
-        if (!(asset instanceof TardisAsset.Bedrock b)) return;
-
-        if (b.geometry() != null && geometry(b.geometry()) == null) {
-            problems.add("geometry " + b.geometry() + " unavailable");
+        if (geometry != null && geometry(geometry) == null) {
+            problems.add("geometry " + geometry + " unavailable");
         }
-        if (b.animation() != null) {
-            Map<String, BedrockAnimationModel.Animation> all = animations(b.animation());
+
+        if (animation != null) {
+            Map<String, BedrockAnimationModel.Animation> all = animations(animation);
             if (all == null) {
-                problems.add("animation " + b.animation() + " unavailable");
-            } else {
-                for (String name : new String[]{ b.openAnimation(), b.closeAnimation() }) {
+                problems.add("animation " + animation + " unavailable");
+            } else if (clipNames != null) {
+                for (String name : clipNames) {
                     if (name != null && !name.isEmpty() && !all.containsKey(name)) {
-                        problems.add("animation " + b.animation()
+                        problems.add("animation " + animation
                                 + " has no clip named '" + name + "'");
                     }
                 }
             }
         }
+        return problems;
     }
 
     // ============================================================

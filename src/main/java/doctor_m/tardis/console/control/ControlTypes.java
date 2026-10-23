@@ -1,6 +1,6 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
-import doctor_m.tardis.console.handler.*;
+import doctor_m.tardis.console.control.behavior.*;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -33,7 +33,7 @@ public final class ControlTypes {
     /** 油门：5 档长行程，带起飞/降落业务（受驻车制动联锁）。 */
     public static final ControlType THROTTLE = register(
             new ControlType("throttle", 5, 5.0f, TierMode.CLAMP)
-                    .behavior(new ThrottleHandler()));
+                    .behavior(new ThrottleBehavior()));
 
     /** 手刹：3 档拉紧 + 0 档松开（共 4 个位置），每拉一档飞行航速减半。 */
     public static final ControlType HANDBRAKE = register(

@@ -1,4 +1,4 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
 /**
  * 控件交互类型。

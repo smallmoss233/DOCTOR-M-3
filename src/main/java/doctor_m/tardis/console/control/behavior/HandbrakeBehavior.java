@@ -1,8 +1,8 @@
-package doctor_m.tardis.console.handler;
+package doctor_m.tardis.console.control.behavior;
 
-import doctor_m.tardis.console.ClickType;
-import doctor_m.tardis.console.ConsoleControlEntity;
-import doctor_m.tardis.console.ControlBehavior;
+import doctor_m.tardis.console.control.ClickType;
+import doctor_m.tardis.console.control.ConsoleControlEntity;
+import doctor_m.tardis.console.control.ControlBehavior;
 import doctor_m.tardis.data.TardisData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;

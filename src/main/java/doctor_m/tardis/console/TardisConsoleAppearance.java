@@ -1,5 +1,6 @@
 package doctor_m.tardis.console;
 
+import doctor_m.tardis.console.control.ControlConfig;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 

@@ -41,7 +41,7 @@ public final class TardisDebugCommand {
                                 .executes(TardisDebugCommand::createDimById)))
                 .then(Commands.literal("tpd")
                         .then(Commands.argument("dim", StringArgumentType.word())
-                                .suggests(TardisCommand.DIMENSION_IDS)
+                                .suggests(TardisCommandSupport.DIMENSION_IDS)
                                 .executes(TardisDebugCommand::tpDimDefault)
                                 .then(Commands.argument("x", IntegerArgumentType.integer())
                                         .then(Commands.argument("y", IntegerArgumentType.integer())
@@ -85,7 +85,7 @@ public final class TardisDebugCommand {
         int tardisCount = 0;
         for (TardisData data : snapshot) {
             TardisManager.delete(server, data.id());
-            TardisCommand.clearExteriorBlock(server, data);
+            TardisLifecycleCommands.clearExteriorBlock(server, data);
             tardisCount++;
         }
         int dimCount = 0;
@@ -108,7 +108,7 @@ public final class TardisDebugCommand {
 
     private static int createDim(CommandContext<CommandSourceStack> ctx, String input) {
         CommandSourceStack source = ctx.getSource();
-        Identifier dimId = TardisCommand.parseDimInput(input);
+        Identifier dimId = TardisCommandSupport.parseDimInput(input);
         if (dimId == null) {
             source.sendFailure(Component.translatable("doctor_m.command.debug.createdim.invalid", input));
             return 0;
@@ -145,7 +145,7 @@ public final class TardisDebugCommand {
         ServerPlayer player = source.getPlayerOrException();
         String input = StringArgumentType.getString(ctx, "dim").trim();
 
-        Identifier dimId = TardisCommand.parseDimInput(input);
+        Identifier dimId = TardisCommandSupport.parseDimInput(input);
         if (dimId == null) {
             source.sendFailure(Component.translatable("doctor_m.command.debug.tpd.invalid", input));
             return 0;

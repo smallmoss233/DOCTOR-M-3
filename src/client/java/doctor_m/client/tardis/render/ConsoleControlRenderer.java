@@ -1,7 +1,7 @@
 package doctor_m.client.tardis.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
-import doctor_m.tardis.console.ConsoleControlEntity;
+import doctor_m.tardis.console.control.ConsoleControlEntity;
 import net.minecraft.client.renderer.SubmitNodeCollector;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.client.renderer.entity.EntityRenderer;

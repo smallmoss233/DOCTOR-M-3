@@ -1,4 +1,4 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
 /**
  * 一种控件类型：数据（默认挡位/时长/到顶行为）+ 行为（{@link ControlBehavior}）。

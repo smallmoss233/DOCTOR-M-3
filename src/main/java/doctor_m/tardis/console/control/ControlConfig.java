@@ -1,4 +1,4 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -24,11 +24,6 @@ public record ControlConfig(
     public ControlConfig {
         if (tiers < 1) tiers = 1;
         if (duration <= 0f) duration = 0.01f;
-    }
-
-    /** 覆盖动画名。 */
-    public ControlConfig withAnimation(String animationId) {
-        return new ControlConfig(type, tiers, duration, tierMode, animationId);
     }
 
     /** 每档对应的动画时间步长（秒）。 */

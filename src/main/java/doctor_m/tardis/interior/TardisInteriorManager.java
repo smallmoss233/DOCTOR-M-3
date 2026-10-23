@@ -1,7 +1,7 @@
 package doctor_m.tardis.interior;
 
 import doctor_m.tardis.TardisManager;
-import doctor_m.tardis.console.ConsoleControlEntity;
+import doctor_m.tardis.console.control.ConsoleControlEntity;
 import doctor_m.tardis.data.TardisData;
 import doctor_m.tardis.data.TardisState;
 import doctor_m.tardis.door.TardisDoorManager;
@@ -13,6 +13,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.entity.EntityTypeTest;
 
@@ -133,7 +134,9 @@ public final class TardisInteriorManager {
     private static void clearRegion(ServerLevel level, BlockPos min, BlockPos max) {
         for (BlockPos p : BlockPos.betweenClosed(min, max)) {
             if (!level.getBlockState(p).isAir()) {
-                level.setBlock(p, Blocks.AIR.defaultBlockState(), 2 | 16);
+                // 静默清除：只同步客户端，不触发邻块更新，避免大面积更新卡顿
+                level.setBlock(p, Blocks.AIR.defaultBlockState(),
+                        Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
             }
         }
     }

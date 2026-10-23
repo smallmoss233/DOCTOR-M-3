@@ -27,8 +27,19 @@ import net.minecraft.network.chat.MutableComponent;
  * // 会崩：
  * Component.translatable("key", pos.getX(), list.size());
  * // 安全：
- * Text.tr("key", Text.of(pos.getX()), Text.of(list.size()));
+ * Text.tr("key", pos.getX(), list.size());
  * }</pre>
+ *
+ * <h2>⚠ 翻译串必须用 {@code %s}，不能用 {@code %d}</h2>
+ * 因为参数一律被转成 {@link Component}，而 {@code String.format} 无法把组件
+ * 用于 {@code %d}（会出现 "Format error: …" 而不是正常文本）。
+ *
+ * <p>写语言文件时的规则：
+ * <ul>
+ *   <li>用 {@code Text.tr(...)} 的键 → 占位符一律 {@code %s}</li>
+ *   <li>数字、枚举、{@code Identifier} 都当普通值传，{@code Text} 自己转</li>
+ * </ul>
+ * 参数数量必须与占位符数量一致，否则同样出错。
  */
 public final class Text {
 

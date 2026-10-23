@@ -1,5 +1,8 @@
 package doctor_m.tardis.console;
 
+import doctor_m.tardis.console.control.ControlTypes;
+import doctor_m.tardis.console.control.ControlType;
+import doctor_m.tardis.console.control.ControlConfig;
 import org.jetbrains.annotations.Nullable;
 
 /**

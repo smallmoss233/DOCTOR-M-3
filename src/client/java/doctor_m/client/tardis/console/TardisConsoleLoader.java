@@ -2,7 +2,13 @@ package doctor_m.client.tardis.console;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import doctor_m.tardis.console.*;
+import doctor_m.tardis.console.ConsoleBoneMatcher;
+import doctor_m.tardis.console.TardisConsoleAppearance;
+import doctor_m.tardis.console.TardisConsoleRegistry;
+import doctor_m.tardis.console.control.ControlConfig;
+import doctor_m.tardis.console.control.ControlType;
+import doctor_m.tardis.console.control.ControlTypes;
+import doctor_m.tardis.console.control.TierMode;
 import mosslib.core.bedrock.BedrockCache;
 import mosslib.core.bedrock.BedrockRenderMath;
 import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
@@ -13,6 +19,9 @@ import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +30,8 @@ import java.util.Map;
  * 扫描 assets/doctor_m/tardis/console/*.json 并填充 TardisConsoleRegistry。
  */
 public final class TardisConsoleLoader {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("doctor_m/console");
 
     private TardisConsoleLoader() {}
 
@@ -56,7 +67,7 @@ public final class TardisConsoleLoader {
                                         parse(appearanceId, json, rm);
                                 if (app != null) loaded.put(appearanceId, app);
                             } catch (Exception ex) {
-                                ex.printStackTrace();
+                                LOGGER.warn("failed to load console appearance {}", fileId, ex);
                             }
                         }
 

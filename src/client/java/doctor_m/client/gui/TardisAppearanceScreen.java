@@ -5,7 +5,7 @@ import doctor_m.network.SetTardisAppearancePayload;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
-import mosslib.core.bedrock.BedrockCache;
+import doctor_m.client.tardis.appearance.TardisAppearanceAssets;
 import mosslib.core.bedrock.BedrockModelRef;
 import mosslib.core.render.BedrockRenderPipeline;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -167,7 +167,7 @@ public class TardisAppearanceScreen extends Screen {
         TardisAppearance app = TardisAppearanceRegistry.get(previewingId);
         if (app == null) return;
 
-        List<String> problems = BedrockCache.warmUp(previewingId);
+        List<String> problems = TardisAppearanceAssets.warmUp(previewingId);
         if (!problems.isEmpty()) {
             LOGGER.warn("[TARDIS] appearance {} applied with asset problems: {}",
                     previewingId, String.join("; ", problems));

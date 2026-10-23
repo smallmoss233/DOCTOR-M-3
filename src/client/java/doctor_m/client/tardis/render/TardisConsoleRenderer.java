@@ -31,7 +31,7 @@ import java.util.Map;
  * 所有几何 / 动画 / 变换逻辑都在 {@link BedrockRenderPipeline} 里。
  *
  * <h2>控件动画</h2>
- * 除了 idle，控制台上的每个控件实体（{@link doctor_m.tardis.console.ConsoleControlEntity}）
+ * 除了 idle，控制台上的每个控件实体（{@link doctor_m.tardis.console.control.ConsoleControlEntity}）
  * 还可以驱动它绑定的骨骼。overrides 表在 {@link #extractRenderState} 里组装
  * （那里能拿到 BE），在 {@link #submit} 里传给 {@link BedrockRenderPipeline}。
  */

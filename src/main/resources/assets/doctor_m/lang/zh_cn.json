@@ -45,7 +45,7 @@
   "doctor_m.command.tardis.info.owner": "§7  拥有者：§f%s",
   "doctor_m.command.tardis.info.exterior": "§7  外门：§b%s§7 @ §f%s§7 朝向 §f%s",
   "doctor_m.command.tardis.info.interior": "§7  内门：§f%s§7 朝向 §f%s",
-  "doctor_m.command.tardis.info.spares": "§7  备用门：§f%d",
+  "doctor_m.command.tardis.info.spares": "§7  备用门：§f%s",
   "doctor_m.command.tardis.info.state": "§7  状态：§f%s",
 
   "doctor_m.command.tardis.list.empty": "§7[DM] 没有已注册的塔迪斯",
@@ -69,7 +69,7 @@
   "doctor_m.command.tardis.appearance.no_target": "附近没有塔迪斯。",
   "doctor_m.command.tardis.appearance.opened": "打开外观选择：%s",
 
-  "doctor_m.command.tardis.throttle.set": "§a[DM] 油门档位已设置为：§b%d",
+  "doctor_m.command.tardis.throttle.set": "§a[DM] 油门档位已设置为：§b%s",
   "doctor_m.command.tardis.brake.on": "§a[DM] 驻车制动已拉起",
   "doctor_m.command.tardis.brake.off": "§a[DM] 驻车制动已释放",
   "doctor_m.command.tardis.interior.opened": "§a[DM] 打开内饰选择：%s",
@@ -98,7 +98,7 @@
   "doctor_m.appearance.name.doctor_m.suitcase": "手提箱",
 
   "doctor_m.command.debug.list.empty": "§7[DM] 无动态维度",
-  "doctor_m.command.debug.list.header": "§7[DM] 共 §b%d§7 个动态维度：",
+  "doctor_m.command.debug.list.header": "§7[DM] 共 §b%s§7 个动态维度：",
   "doctor_m.command.debug.list.entry": "  §b%s§r | 玩家 %s | 实体 %s | chunk %s | %s %s",
   "doctor_m.command.debug.save.success": "§a[DM] 已保存所有动态维度",
   "doctor_m.command.debug.reload.success": "§a[DM] 已卸载所有动态维度，重进时重新加载",
@@ -106,7 +106,7 @@
   "doctor_m.command.debug.createdim.success": "§a[DM] 已创建动态维度 §b%s",
   "doctor_m.command.debug.createdim.fail": "§c[DM] 创建动态维度失败：§b%s",
   "doctor_m.command.debug.createdim.invalid": "§c[DM] 非法的维度 ID：§b%s",
-  "doctor_m.command.debug.tpd.success": "§a[DM] 已传送至维度 §b%s §a@ §f(%d, %d, %d)",
+  "doctor_m.command.debug.tpd.success": "§a[DM] 已传送至维度 §b%s §a@ §f(%s, %s, %s)",
   "doctor_m.command.debug.tpd.fail": "§c[DM] 无法进入维度：§b%s",
   "doctor_m.command.debug.tpd.invalid": "§c[DM] 非法的维度 ID：§b%s",
   "doctor_m.command.debug.createdim.not_tardis": "§c[DM] 只能创建 tardis/ 路径下的动态维度",

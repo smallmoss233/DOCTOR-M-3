@@ -1,4 +1,4 @@
-package doctor_m.tardis.console;
+package doctor_m.tardis.console.control;
 
 import doctor_m.tardis.data.TardisData;
 import net.minecraft.server.level.ServerLevel;

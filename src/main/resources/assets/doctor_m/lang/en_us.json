@@ -45,7 +45,7 @@
   "doctor_m.command.tardis.info.owner": "§7  Owner: §f%s",
   "doctor_m.command.tardis.info.exterior": "§7  Exterior: §b%s§7 @ §f%s§7 facing §f%s",
   "doctor_m.command.tardis.info.interior": "§7  Interior: §f%s§7 facing §f%s",
-  "doctor_m.command.tardis.info.spares": "§7  Spare doors: §f%d",
+  "doctor_m.command.tardis.info.spares": "§7  Spare doors: §f%s",
   "doctor_m.command.tardis.info.state": "§7  State: §f%s",
 
   "doctor_m.command.tardis.list.empty": "§7[DM] No TARDIS registered",
@@ -69,7 +69,7 @@
   "doctor_m.command.tardis.appearance.no_target": "No TARDIS nearby.",
   "doctor_m.command.tardis.appearance.opened": "Opening appearance selector: %s",
 
-  "doctor_m.command.tardis.throttle.set": "§a[DM] Throttle set to: §b%d",
+  "doctor_m.command.tardis.throttle.set": "§a[DM] Throttle set to: §b%s",
   "doctor_m.command.tardis.brake.on": "§a[DM] Parking brake engaged",
   "doctor_m.command.tardis.brake.off": "§a[DM] Parking brake released",
   "doctor_m.command.tardis.interior.opened": "§a[DM] Opening interior selector: %s",
@@ -98,7 +98,7 @@
   "doctor_m.appearance.name.doctor_m.suitcase": "Suitcase",
 
   "doctor_m.command.debug.list.empty": "§7[DM] No dynamic dimensions",
-  "doctor_m.command.debug.list.header": "§7[DM] Dynamic dimensions (§b%d§7):",
+  "doctor_m.command.debug.list.header": "§7[DM] Dynamic dimensions (§b%s§7):",
   "doctor_m.command.debug.list.entry": "  §b%s§r | players %s | entities %s | chunks %s | %s %s",
   "doctor_m.command.debug.save.success": "§a[DM] Saved all dynamic dimensions",
   "doctor_m.command.debug.reload.success": "§a[DM] Unloaded all dynamic dimensions; they will reload on next entry",
@@ -106,7 +106,7 @@
   "doctor_m.command.debug.createdim.success": "§a[DM] Created dynamic dimension §b%s",
   "doctor_m.command.debug.createdim.fail": "§c[DM] Failed to create dynamic dimension: §b%s",
   "doctor_m.command.debug.createdim.invalid": "§c[DM] Invalid dimension ID: §b%s",
-  "doctor_m.command.debug.tpd.success": "§a[DM] Teleported to dimension §b%s §aat §f(%d, %d, %d)",
+  "doctor_m.command.debug.tpd.success": "§a[DM] Teleported to dimension §b%s §aat §f(%s, %s, %s)",
   "doctor_m.command.debug.tpd.fail": "§c[DM] Cannot enter dimension: §b%s",
   "doctor_m.command.debug.tpd.invalid": "§c[DM] Invalid dimension ID: §b%s",
   "doctor_m.command.debug.createdim.not_tardis": "§c[DM] Can only create dynamic dimensions under the tardis/ path",

@@ -2,7 +2,10 @@ package doctor_m.block.entity;
 
 import doctor_m.block.TardisConsoleBlock;
 import doctor_m.register.DMBlockEntities;
-import doctor_m.tardis.console.*;
+import doctor_m.tardis.console.ConsoleControlSync;
+import doctor_m.tardis.console.TardisConsoleAppearance;
+import doctor_m.tardis.console.TardisConsoleRegistry;
+import doctor_m.tardis.console.control.ConsoleControlEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
@@ -159,8 +162,8 @@ public class TardisConsoleBlockEntity extends BlockEntity {
     /**
      * 服务端：处理客户端报告。
      *
-     * <p>数据流与"服务端自己读几何"一致，只是 AABB 来源换成了客户端。
-     * 若骨骼名解析不出控件配置（非 ctrl_ 前缀等），跳过该条。
+     * <p>对账逻辑本身在 {@link ConsoleControlSync#reconcile} —— 本方法只做
+     * 前置校验（必须是已放置的控制台、外观可用）后转发。
      */
     public void applyClientControls(List<doctor_m.network.SyncConsoleControlsPayload.Entry> entries) {
         if (!(level instanceof ServerLevel sl)) return;
@@ -169,51 +172,7 @@ public class TardisConsoleBlockEntity extends BlockEntity {
         TardisConsoleAppearance app = TardisConsoleRegistry.get(appearanceId);
         if (app == null) return;
 
-        // ---- 1. 收集现有实体（用 Set，同名不互相覆盖） ----
-        Set<ConsoleControlEntity> pool = new LinkedHashSet<>();
-        for (ConsoleControlEntity c : controls) {
-            if (!c.isRemoved()) pool.add(c);
-        }
-        pool.addAll(sl.getEntitiesOfClass(
-                ConsoleControlEntity.class,
-                new AABB(getBlockPos()).inflate(8),
-                e -> getBlockPos().equals(e.getConsolePos())));
-
-        controls.clear();
-
-        // ---- 2. 按客户端列表消费 pool ----
-        for (doctor_m.network.SyncConsoleControlsPayload.Entry e : entries) {
-            String boneName = e.boneName();
-
-            // 从 pool 里找第一个同名骨骼（消耗掉它）
-            ConsoleControlEntity entity = null;
-            Iterator<ConsoleControlEntity> it = pool.iterator();
-            while (it.hasNext()) {
-                ConsoleControlEntity c = it.next();
-                if (boneName.equals(c.getBoneName())) {
-                    entity = c;
-                    it.remove();
-                    break;
-                }
-            }
-
-            if (entity == null) {
-                ControlConfig config = ConsoleBoneMatcher.resolve(boneName, app);
-                if (config == null) continue;
-
-                ConsoleControlLayout.ControlBounds bounds =
-                        new ConsoleControlLayout.ControlBounds(boneName, config, e.box());
-                entity = ConsoleControlEntity.spawn(sl, getBlockPos(), bounds, 0);
-            } else {
-                entity.applyBounds(e.box());
-            }
-            controls.add(entity);
-        }
-
-        // ---- 3. 剩下的全部 discard（包括同名重复的旧实体） ----
-        for (ConsoleControlEntity leftover : pool) {
-            leftover.discard();
-        }
+        ConsoleControlSync.reconcile(sl, getBlockPos(), app, controls, entries);
     }
 
     private Direction currentFacing() {

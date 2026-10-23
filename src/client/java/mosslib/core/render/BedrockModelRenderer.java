@@ -133,22 +133,12 @@ public final class BedrockModelRenderer {
             }
         }
 
-        Vector3f pivot = bone.pivot();
-        Vector3f rotation = bone.rotation();
-        Vector3f position = null;
-        Vector3f scale = null;
-
-        if (sourceAnim != null) {
-            BedrockAnimationModel.BoneTracks tracks = sourceAnim.bones().get(bone.name());
-            if (tracks != null) {
-                Vector3f kf = BedrockRenderMath.sample(tracks.rotation(), sourceTime);
-                if (kf != null) rotation = kf;
-                kf = BedrockRenderMath.sample(tracks.position(), sourceTime);
-                if (kf != null) position = kf;
-                kf = BedrockRenderMath.sample(tracks.scale(), sourceTime);
-                if (kf != null) scale = kf;
-            }
-        }
+        // 姿态解析与 BoundingBox / ConsoleControlLayout 共用同一份实现
+        BedrockPose.BoneState state = BedrockPose.resolve(bone, sourceAnim, sourceTime);
+        Vector3f pivot = state.pivot();
+        Vector3f rotation = state.rotation();
+        Vector3f position = state.position();
+        Vector3f scale = state.scale();
 
         pose.pushPose();
         try {
@@ -207,16 +197,16 @@ public final class BedrockModelRenderer {
 
         Vector3f cubePivot = cube.pivot() != null ? cube.pivot() : bonePivot;
 
+        // 六个角坐标装进一个数组（而不是 3 个小数组），减少每 cube 的分配。
+        // 布局：0=x0 1=x1 2=y0 3=y1 4=z0 5=z1
         final float x0 = cube.origin().x() - cubePivot.x();
         final float y0 = cube.origin().y() - cubePivot.y();
         final float z0 = cube.origin().z() - cubePivot.z();
-        final float x1 = x0 + size.x();
-        final float y1 = y0 + size.y();
-        final float z1 = z0 + size.z();
-
-        final float[] cx = { x0, x1 };
-        final float[] cy = { y0, y1 };
-        final float[] cz = { z0, z1 };
+        final float[] coords = {
+                x0, x0 + size.x(),
+                y0, y0 + size.y(),
+                z0, z0 + size.z()
+        };
 
         final Matrix4f model = new Matrix4f(pose.last().pose());
         final float dpx = cubePivot.x() - bonePivot.x();
@@ -242,25 +232,25 @@ public final class BedrockModelRenderer {
         final boolean mirror = cube.mirror();
         final Map<String, BedrockGeometryModel.FaceUv> faceUvs = cube.faceUvs();
 
-        final int alphaByte = (int) (Math.max(0f, Math.min(1f, alpha)) * 255f) & 0xFF;
+        // 颜色用位运算就地拼：R=G=B=方向阴影，A=alpha。
+        // 这样不必为每个 cube 再分配一个 shadeBytes 数组。
+        final int alphaBits = ((int) (Math.max(0f, Math.min(1f, alpha)) * 255f) & 0xFF) << 24;
 
-        final boolean[] degenerate = new boolean[6];
-        final int[] shadeBytes = new int[6];
+        // 退化面用位掩码记录，避免每 cube 分配 boolean[6]
+        int degenerateMask = 0;
         for (int fi = 0; fi < 6; fi++) {
-            degenerate[fi] = isDegenerate(fi, size);
-            shadeBytes[fi] = (alphaByte << 24)
-                    | (FACE_SHADE_BYTES[fi] << 16)
-                    | (FACE_SHADE_BYTES[fi] << 8)
-                    | FACE_SHADE_BYTES[fi];
+            if (isDegenerate(fi, size)) degenerateMask |= 1 << fi;
         }
+        final int degenerate = degenerateMask;
 
         collector.submitCustomGeometry(pose, rt, (p, buffer) -> {
             for (int fi = 0; fi < 6; fi++) {
                 BedrockGeometryModel.FaceUv face = faceUvs.get(FACE_NAMES[fi]);
                 if (face == null) continue;
-                if (degenerate[fi]) continue;
+                if ((degenerate & (1 << fi)) != 0) continue;
 
-                final int faceColor = shadeBytes[fi];
+                // 方向阴影三通道相同，用乘法一次铺开
+                final int faceColor = alphaBits | (FACE_SHADE_BYTES[fi] * 0x010101);
 
                 float uMin = face.u() / texW;
                 float uMax = (face.u() + face.w()) / texW;
@@ -281,8 +271,11 @@ public final class BedrockModelRenderer {
 
                 int[][] corners = FACE_CORNERS[fi];
                 for (int i = 0; i < 4; i++) {
-                    int[] c = corners[i];
-                    tmp.set(cx[c[0]], cy[c[1]], cz[c[2]]);
+                    int[] corner = corners[i];
+                    // coords 布局：0/1 = x0/x1，2/3 = y0/y1，4/5 = z0/z1
+                    tmp.set(coords[corner[0]],
+                            coords[2 + corner[1]],
+                            coords[4 + corner[2]]);
                     model.transformPosition(tmp);
 
                     buffer.addVertex(tmp.x(), tmp.y(), tmp.z());

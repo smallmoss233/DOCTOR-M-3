@@ -1,8 +1,8 @@
 package doctor_m.tardis;
 
 import doctor_m.stp.StpServerState;
-import doctor_m.tardis.console.ConsoleControlEntity;
-import doctor_m.tardis.console.ControlTypes;
+import doctor_m.tardis.console.control.ConsoleControlEntity;
+import doctor_m.tardis.console.control.ControlTypes;
 import doctor_m.tardis.data.TardisData;
 import doctor_m.tardis.data.TardisRegistryData;
 import doctor_m.tardis.data.TardisState;
@@ -123,7 +123,7 @@ public final class TardisManager {
                 interiorPos, exteriorFacing, List.of()
         );
         data.setInteriorBuilt(false);
-        data.setTier(ControlTypes.LANDING_FACING.id(), doctor_m.tardis.console.handler.LandingFacingBehavior.tierOf(exteriorFacing));
+        data.setTier(ControlTypes.LANDING_FACING.id(), doctor_m.tardis.console.control.behavior.LandingFacingBehavior.tierOf(exteriorFacing));
 
         getRegistry(server).put(data);
         TardisInteriorManager.ensureInterior(server, data);

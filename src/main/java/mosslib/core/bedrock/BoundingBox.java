@@ -7,18 +7,19 @@ import org.joml.Vector3f;
  * 几何体包围盒计算。
  *
  * <p><b>为什么需要它</b>：立方体的 {@code origin} 是<b>骨骼本地坐标</b>，不是模型坐标。
- * 旧版 {@code GuiBedrockModelRenderer} 直接把所有 cube 的 origin/size 取极值，完全忽略
- * 骨骼 pivot 链和骨骼旋转，于是任何 pivot 远离原点的模型（例如警亭的
- * {@code 警亭} 骨骼 pivot 是 {@code [0, 22.2, 0]}）算出来的中心都是错的 ——
- * 表现就是 UI 预览里模型偏移、缩放不合适。
+ * 只把所有 cube 的 origin/size 取极值（忽略骨骼 pivot 链与骨骼旋转）会算错中心 ——
+ * 例如警亭的 {@code 警亭} 骨骼 pivot 是 {@code [0, 22.2, 0]}，忽略它会让 UI 预览
+ * 里的模型明显偏移、缩放不合适。
  *
- * <p>静态骨骼旋转（本项目的资产里确实存在，如墙壁的 {@code [0, -90, 0]}）也会参与计算。
+ * <p>实际数学在 {@link BedrockPose} 里，本类只负责"遍历骨骼并累加"。
+ * 与 {@code ConsoleControlLayout}（控件碰撞箱）共用同一份变换实现，
+ * 因此预览尺寸与碰撞箱不会互相漂移。
  */
 public final class BoundingBox {
 
     private BoundingBox() {}
 
-    /** 轴对齐包围盒。 */
+    /** 轴对齐包围盒。单位与模型一致（像素，16 = 1 格）。 */
     public record Box(float minX, float minY, float minZ,
                       float maxX, float maxY, float maxZ) {
 
@@ -45,9 +46,7 @@ public final class BoundingBox {
         }
     }
 
-    /**
-     * 计算几何体的静态包围盒（使用骨骼自带的静态旋转，不含动画）。
-     */
+    /** 计算几何体的静态包围盒（使用骨骼自带的静态旋转，不含动画）。 */
     public static Box of(BedrockGeometryModel geo) {
         return of(geo, null, 0f);
     }
@@ -63,113 +62,40 @@ public final class BoundingBox {
                          float time) {
         if (geo == null) return Box.unit();
 
-        Accumulator acc = new Accumulator();
-        Matrix4f parent = new Matrix4f();
+        BedrockPose.AabbAccumulator acc = new BedrockPose.AabbAccumulator();
+        Matrix4f parentPose = new Matrix4f();
+        Matrix4f scratch = new Matrix4f();
+        Vector3f temp = new Vector3f();
+
         for (BedrockGeometryModel.Bone root : geo.rootBones()) {
-            walk(root, null, parent, anim, time, acc);
+            walk(root, null, parentPose, anim, time, acc, scratch, temp);
         }
-        return acc.isEmpty() ? Box.unit() : acc.toBox();
+        if (acc.isEmpty()) return Box.unit();
+        return new Box(acc.minX(), acc.minY(), acc.minZ(),
+                acc.maxX(), acc.maxY(), acc.maxZ());
     }
 
-    /** 逐个骨骼累加：把 cube 的八个角变换到模型空间后取极值。 */
+    /** 递归：算出每个骨骼的模型空间位姿，把它的 cube 并入累加器。 */
     private static void walk(BedrockGeometryModel.Bone bone,
                              Vector3f parentPivot,
                              Matrix4f parentPose,
                              BedrockAnimationModel.Animation anim,
                              float time,
-                             Accumulator acc) {
+                             BedrockPose.AabbAccumulator acc,
+                             Matrix4f scratch,
+                             Vector3f temp) {
 
-        Vector3f pivot = bone.pivot();
-        Vector3f rotation = bone.rotation();
-        Vector3f position = null;
-        Vector3f scale = null;
+        BedrockPose.BoneState state = BedrockPose.resolve(bone, anim, time);
 
-        if (anim != null) {
-            BedrockAnimationModel.BoneTracks tracks = anim.bones().get(bone.name());
-            if (tracks != null) {
-                Vector3f kf = BedrockRenderMath.sample(tracks.rotation(), time);
-                if (kf != null) rotation = kf;
-                kf = BedrockRenderMath.sample(tracks.position(), time);
-                if (kf != null) position = kf;
-                kf = BedrockRenderMath.sample(tracks.scale(), time);
-                if (kf != null) scale = kf;
-            }
-        }
-
-        // 与渲染器保持完全一致的骨骼变换顺序，否则包围盒和实际画面会对不上。
-        Matrix4f pose = new Matrix4f(parentPose);
-        if (parentPivot == null) {
-            pose.translate(pivot.x(), pivot.y(), pivot.z());
-        } else {
-            pose.translate(pivot.x() - parentPivot.x(),
-                    pivot.y() - parentPivot.y(),
-                    pivot.z() - parentPivot.z());
-        }
-        if (position != null) {
-            pose.translate(position.x(), position.y(), position.z());
-        }
-        if (rotation.x() != 0f || rotation.y() != 0f || rotation.z() != 0f) {
-            pose.rotate(BedrockRenderMath.boneRotationEuler(rotation));
-        }
-        if (scale != null
-                && (scale.x() != 1f || scale.y() != 1f || scale.z() != 1f)) {
-            pose.scale(scale.x(), scale.y(), scale.z());
-        }
+        // 每层独立矩阵：子骨骼传入的就是它，若与自身复用会自乘
+        Matrix4f bonePose = new Matrix4f();
+        BedrockPose.applyBone(bonePose, parentPose, state, parentPivot);
 
         for (BedrockGeometryModel.Cube cube : bone.cubes()) {
-            acc.include(pose, cube, pivot);
+            acc.includeCube(bonePose, cube, state.pivot(), scratch, temp);
         }
         for (BedrockGeometryModel.Bone child : bone.children()) {
-            walk(child, pivot, pose, anim, time, acc);
+            walk(child, state.pivot(), bonePose, anim, time, acc, scratch, temp);
         }
-    }
-
-    private static final class Accumulator {
-        private float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, minZ = Float.MAX_VALUE;
-        private float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE, maxZ = -Float.MAX_VALUE;
-
-        void include(Matrix4f bonePose, BedrockGeometryModel.Cube cube, Vector3f bonePivot) {
-            Vector3f size = cube.size();
-            if (size.x() == 0f && size.y() == 0f && size.z() == 0f) return;
-
-            Vector3f cubePivot = cube.pivot() != null ? cube.pivot() : bonePivot;
-
-            final float x0 = cube.origin().x() - cubePivot.x();
-            final float y0 = cube.origin().y() - cubePivot.y();
-            final float z0 = cube.origin().z() - cubePivot.z();
-            final float x1 = x0 + size.x();
-            final float y1 = y0 + size.y();
-            final float z1 = z0 + size.z();
-
-            // cube 自己的 pivot 偏移与旋转
-            Matrix4f m = new Matrix4f(bonePose);
-            float dpx = cubePivot.x() - bonePivot.x();
-            float dpy = cubePivot.y() - bonePivot.y();
-            float dpz = cubePivot.z() - bonePivot.z();
-            if (dpx != 0f || dpy != 0f || dpz != 0f) m.translate(dpx, dpy, dpz);
-            Vector3f cr = cube.rotation();
-            if (cr.x() != 0f || cr.y() != 0f || cr.z() != 0f) {
-                m.rotate(BedrockRenderMath.cubeRotationEuler(cr));
-            }
-
-            Vector3f tmp = new Vector3f();
-            for (int i = 0; i < 8; i++) {
-                tmp.set(
-                        (i & 1) == 0 ? x0 : x1,
-                        (i & 2) == 0 ? y0 : y1,
-                        (i & 4) == 0 ? z0 : z1);
-                m.transformPosition(tmp);
-                if (tmp.x < minX) minX = tmp.x;
-                if (tmp.y < minY) minY = tmp.y;
-                if (tmp.z < minZ) minZ = tmp.z;
-                if (tmp.x > maxX) maxX = tmp.x;
-                if (tmp.y > maxY) maxY = tmp.y;
-                if (tmp.z > maxZ) maxZ = tmp.z;
-            }
-        }
-
-        boolean isEmpty() { return maxX < minX; }
-
-        Box toBox() { return new Box(minX, minY, minZ, maxX, maxY, maxZ); }
     }
 }
