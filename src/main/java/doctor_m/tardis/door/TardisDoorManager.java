@@ -172,6 +172,8 @@ public final class TardisDoorManager {
                 be.setAppearance(data.appearanceId());
                 be.setTardisId(data.id());
                 be.setExterior(true);
+                // 外门的对端是内门（BOTI 门户渲染锚点）
+                be.setCounterpart(data.interiorPos(), data.interiorFacing());
                 BlockState s = ext.getBlockState(pos);
                 if (s.getBlock() instanceof AbstractTardisDoorBlock) be.setOpen(s.getValue(AbstractTardisDoorBlock.OPEN));
             }
@@ -184,6 +186,8 @@ public final class TardisDoorManager {
                 be.setAppearance(data.appearanceId());
                 be.setTardisId(data.id());
                 be.setExterior(false);
+                // 内门的对端是外门
+                be.setCounterpart(data.exteriorPos(), data.exteriorFacing());
                 BlockState s = in.getBlockState(pos);
                 if (s.getBlock() instanceof AbstractTardisDoorBlock) be.setOpen(s.getValue(AbstractTardisDoorBlock.OPEN));
             }

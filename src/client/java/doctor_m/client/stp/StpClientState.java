@@ -76,7 +76,7 @@ public final class StpClientState {
         final ResourceKey<DimensionType> dimensionType;
         final ClientLevel level;
         final ClientLevel.ClientLevelData levelData;
-        final long createdAtMs;
+        long createdAtMs;
 
         Prepared(UUID sessionId,
                  ResourceKey<Level> dimension,
@@ -94,6 +94,23 @@ public final class StpClientState {
         boolean isExpired(long nowMs) {
             return nowMs - createdAtMs > StpConfig.PREPARE_TIMEOUT_MS;
         }
+
+        /** 门户渲染仍在使用这份 level 时刷新时间戳，避免被过期逻辑清掉。 */
+        void touch() {
+            this.createdAtMs = System.currentTimeMillis();
+        }
+    }
+
+    /**
+     * 取当前预构建的对侧 ClientLevel（不消费）。门户渲染专用。
+     *
+     * <p>对偶语义：站在门外 → prepared 是内饰维度；站在门内 → prepared 是外维度。
+     * 所以「prepared 就是对面」这个不变量恒成立，无需额外维度查询。
+     * 返回 null 表示当前没有可用的对侧数据（门未接近 / 已消费 / 已过期），门户隐藏。
+     */
+    public static ClientLevel portalLevel() {
+        Prepared p = prepared;
+        return p == null ? null : p.level;
     }
 
     private static volatile Prepared prepared = null;
@@ -382,6 +399,33 @@ public final class StpClientState {
         prepared = null;
         StpConfig.debug("handing over prepared ClientLevel for {}",
                 p.dimension.identifier());
+        return p.level;
+    }
+
+    // ============================================================
+    //                      门户渲染（BOTI）访问
+    // ============================================================
+
+    /**
+     * 门户渲染每帧调用：预构建 level 正在被门户视图使用，刷新过期时间戳。
+     *
+     * <p>玩家站在门外看门里时不会发生维度切换，预构建实例若不续期就会在
+     * {@link StpConfig#PREPARE_TIMEOUT_MS} 后被过期逻辑作废，门户视图随之黑掉。
+     */
+    public static void portalKeepAlive() {
+        Prepared p = prepared;
+        if (p != null) p.touch();
+    }
+
+    /**
+     * 取指定维度的预构建 {@link ClientLevel}（不消费），供门户渲染读取方块 / 光照。
+     *
+     * <p>维度不匹配或尚无预构建实例时返回 {@code null} —— 门户视图应当隐藏。
+     */
+    public static ClientLevel portalLevelFor(net.minecraft.resources.Identifier dimensionId) {
+        Prepared p = prepared;
+        if (p == null) return null;
+        if (!p.dimension.identifier().equals(dimensionId)) return null;
         return p.level;
     }
 

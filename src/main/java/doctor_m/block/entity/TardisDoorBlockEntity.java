@@ -2,6 +2,7 @@ package doctor_m.block.entity;
 
 import doctor_m.register.DMBlockEntities;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
@@ -24,6 +25,10 @@ public class TardisDoorBlockEntity extends BlockEntity {
     private UUID tardisId = null;
     private boolean open = false;
     private boolean exterior = false;
+
+    // 对端门的锚点（BOTI 门户渲染用）：另一侧门方块的位置与朝向
+    private BlockPos counterpartPos = null;
+    private Direction counterpartFacing = Direction.NORTH;
 
     // 淡入淡出状态
     private int fadeTicks = 0;
@@ -71,6 +76,21 @@ public class TardisDoorBlockEntity extends BlockEntity {
         setChanged();
         syncToClient();
     }
+
+    /** 对端门锚点：一次设置两端数据，只触发一次客户端同步。 */
+    public void setCounterpart(BlockPos pos, Direction facing) {
+        boolean same = (pos == null ? counterpartPos == null : pos.equals(counterpartPos))
+                && facing == counterpartFacing;
+        if (same) return;
+        this.counterpartPos = pos == null ? null : pos.immutable();
+        this.counterpartFacing = facing == null ? Direction.NORTH : facing;
+        setChanged();
+        syncToClient();
+    }
+
+    public BlockPos getCounterpartPos() { return counterpartPos; }
+
+    public Direction getCounterpartFacing() { return counterpartFacing; }
 
     // ---- 淡入淡出 ----
 
@@ -149,6 +169,12 @@ public class TardisDoorBlockEntity extends BlockEntity {
         if (tardisId != null)      output.putString("tardis_id", tardisId.toString());
         output.putBoolean("open", open);
         output.putBoolean("exterior", exterior);
+        if (counterpartPos != null) {
+            output.putInt("counterpart_x", counterpartPos.getX());
+            output.putInt("counterpart_y", counterpartPos.getY());
+            output.putInt("counterpart_z", counterpartPos.getZ());
+            output.putString("counterpart_facing", counterpartFacing.getName());
+        }
         // fade 状态不存盘 —— 临时状态
     }
 
@@ -168,6 +194,18 @@ public class TardisDoorBlockEntity extends BlockEntity {
         open = input.getBooleanOr("open", false);
         exterior = input.getBooleanOr("exterior", false);
 
+        counterpartFacing = Direction.byName(input.getStringOr("counterpart_facing", "north"));
+        if (counterpartFacing == null) counterpartFacing = Direction.NORTH;
+        int cx = input.getIntOr("counterpart_x", Integer.MIN_VALUE);
+        if (cx != Integer.MIN_VALUE) {
+            counterpartPos = new BlockPos(
+                    cx,
+                    input.getIntOr("counterpart_y", 0),
+                    input.getIntOr("counterpart_z", 0));
+        } else {
+            counterpartPos = null;
+        }
+
         // ★ 客户端从 update tag 读到 fade 状态；磁盘加载时这些 key 不存在，用默认值
         fadeTicks = input.getIntOr("fade_ticks", 0);
         fadeFrom  = input.getFloatOr("fade_from", 1f);
@@ -183,6 +221,12 @@ public class TardisDoorBlockEntity extends BlockEntity {
         if (tardisId != null)      tag.putString("tardis_id", tardisId.toString());
         tag.putBoolean("open", open);
         tag.putBoolean("exterior", exterior);
+        if (counterpartPos != null) {
+            tag.putInt("counterpart_x", counterpartPos.getX());
+            tag.putInt("counterpart_y", counterpartPos.getY());
+            tag.putInt("counterpart_z", counterpartPos.getZ());
+            tag.putString("counterpart_facing", counterpartFacing.getName());
+        }
         tag.putInt("fade_ticks", fadeTicks);
         tag.putFloat("fade_from", fadeFrom);
         tag.putFloat("fade_to", fadeTo);

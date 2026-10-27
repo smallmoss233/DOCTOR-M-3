@@ -13,5 +13,8 @@ public class TardisDoorRenderState extends BlockEntityRenderState {
     public float animElapsedSec;
     public boolean animTarget;
     public float fadeAlpha = 1.0f;
-    public boolean renderThis = true;   // ← 新增
+    public boolean renderThis = true;
+    public net.minecraft.core.BlockPos counterpartPos;
+    public net.minecraft.core.Direction counterpartFacing = net.minecraft.core.Direction.NORTH;
+
 }
