@@ -16,15 +16,14 @@ import org.joml.Vector3f;
 import org.joml.Vector4f;
 
 public class PortalMaskRenderer {
+
     public static void renderMask(RenderPass pass, CameraRenderState camera) {
         var holes = PortalViewManager.get().getActiveHoles();
         if (holes.isEmpty()) return;
 
-        // 直接用原版 WATER_MASK：只写深度，不写颜色
         var pipeline = RenderSystem.getCompiledPipeline(RenderPipelines.WATER_MASK);
         pass.setPipeline(pipeline);
 
-        // ★ 核心修复：正确的视图矩阵是 R * T（先平移，再旋转）
         Matrix4f camMat = new Matrix4f(camera.viewRotationMatrix);
         camMat.translate((float)-camera.pos.x, (float)-camera.pos.y, (float)-camera.pos.z);
 
@@ -32,15 +31,15 @@ public class PortalMaskRenderer {
                 camMat,
                 new Vector4f(1, 1, 1, 1),
                 new Vector3f(0, 0, 0),
-                new Matrix4f()
-        );
+                new Matrix4f());
         pass.setUniform("DynamicTransforms", transform);
 
         ByteBufferBuilder byteBuffer = new ByteBufferBuilder(256);
-        BufferBuilder builder = new BufferBuilder(byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION);
+        BufferBuilder builder = new BufferBuilder(
+                byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION);
 
         for (PortalClipper.DoorHole hole : holes) {
-            // 推入世界坐标
+            // 严格按 tl -> bl -> br -> tr 的逆时针顺序画，防止背面剔除
             putVertex(builder, hole.tl());
             putVertex(builder, hole.bl());
             putVertex(builder, hole.br());
@@ -50,22 +49,18 @@ public class PortalMaskRenderer {
         MeshData meshData = builder.build();
         if (meshData != null) {
             var device = RenderSystem.getDevice();
-
-            // 32 = USAGE_VERTEX, 8 = USAGE_COPY_DST, 2 = USAGE_MAP_WRITE
-            GpuBuffer buf = device.createBuffer(() -> "portal_mask_vbo", 32 | 8 | 2, meshData.vertexBuffer().remaining());
-
+            GpuBuffer buf = device.createBuffer(
+                    () -> "portal_mask_vbo", 32 | 8 | 2,
+                    meshData.vertexBuffer().remaining());
             try (var view = buf.map(false, true)) {
                 var src = meshData.vertexBuffer();
                 src.position(0);
                 view.data().put(src);
             }
-
             pass.setVertexBuffer(0, buf.slice());
             var autoIndices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
             pass.setIndexBuffer(autoIndices.getBuffer(holes.size() * 4), autoIndices.type());
-
             pass.drawIndexed(holes.size() * 6, 1, 0, 0, 0);
-
             buf.close();
             meshData.close();
         }
@@ -73,6 +68,6 @@ public class PortalMaskRenderer {
     }
 
     private static void putVertex(BufferBuilder builder, Vec3 pos) {
-        builder.addVertex((float)pos.x, (float)pos.y, (float)pos.z);
+        builder.addVertex((float) pos.x, (float) pos.y, (float) pos.z);
     }
 }

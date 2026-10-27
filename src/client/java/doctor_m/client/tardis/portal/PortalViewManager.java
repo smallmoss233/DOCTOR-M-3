@@ -24,6 +24,7 @@ import net.minecraft.util.Util;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.ArrayList;
@@ -42,11 +43,15 @@ public final class PortalViewManager {
     private static final long REBUILD_INTERVAL_MS = 250L;
     private static final double MAX_RENDER_DISTANCE_SQ = 64.0 * 64.0;
 
+    // 把对面的世界往前拉一点，刚好在 Depth Mask 前面，完美显示
+    private static final double PORTAL_DEPTH_OFFSET = -0.1;
+
     private static final class CacheEntry {
         ClientLevel sourceLevel;
         PortalTransform transform;
         PortalMesh mesh;
-        PortalClipper.DoorHole hole; // 门洞矩形（供后续 Mixin 挖洞用）
+        PortalClipper.DoorHole hole;
+        AABB holeAABB;
         long builtAtMs;
     }
 
@@ -57,7 +62,6 @@ public final class PortalViewManager {
     public void submitPortal(TardisDoorRenderState state, PoseStack poseStack,
                              SubmitNodeCollector collector, CameraRenderState camera) {
         if (state.blockPos == null) return;
-
         if (camera.pos.distanceToSqr(Vec3.atCenterOf(state.blockPos)) > MAX_RENDER_DISTANCE_SQ) return;
 
         ClientLevel prepared = StpClientState.portalLevel();
@@ -67,19 +71,28 @@ public final class PortalViewManager {
 
         CacheEntry entry = cache.get(state.blockPos);
         long now = Util.getMillis();
-        boolean needRebuild = entry == null
-                || entry.sourceLevel != prepared
-                || now - entry.builtAtMs > REBUILD_INTERVAL_MS;
+        boolean needRebuild = entry == null || entry.sourceLevel != prepared || now - entry.builtAtMs > REBUILD_INTERVAL_MS;
+
         if (needRebuild) {
             entry = buildEntry(state, prepared, now);
             if (entry == null) return;
             cache.put(state.blockPos, entry);
         }
 
-        // 1. 渲染普通方块（仅门平面裁剪，视锥交由后续 Mixin 挖洞处理）
+        // ★ 核心需求：如果你绕到了门洞背面，直接停止渲染！
+        Vec3 holeCenter = entry.hole.center();
+        Vec3 holeNormal = entry.hole.normal();
+        Vec3 toCamera = camera.pos.subtract(holeCenter);
+
+        if (toCamera.dot(holeNormal) <= 0.0) {
+            return; // 在背面，什么都不画
+        }
+
+        // 用四面刀把对面世界切得严丝合缝
         List<PortalQuad> visible = PortalClipper.clip(
                 entry.mesh, camera.cullFrustum,
-                entry.transform.planePoint(), entry.transform.planeNormal());
+                entry.transform.planePoint(), entry.transform.planeNormal(),
+                entry.hole);
 
         if (!visible.isEmpty()) {
             collector.submitCustomGeometry(poseStack, RenderTypes.cutoutMovingBlock(),
@@ -93,10 +106,7 @@ public final class PortalViewManager {
                     });
         }
 
-        // 3. 渲染对侧方块实体
         renderBlockEntities(state, entry, poseStack, collector, camera);
-
-        // 4. 渲染对侧实体（仿 AIT 方案）
         renderEntities(state, entry, poseStack, collector, camera);
     }
 
@@ -108,7 +118,7 @@ public final class PortalViewManager {
         var remoteFacing = state.counterpartFacing != null ? state.counterpartFacing : Direction.NORTH;
 
         PortalTransform transform = PortalTransform.fromDoorToDoor(
-                state.blockPos, localFacing, counterpartPos, remoteFacing, 1.0);
+                state.blockPos, localFacing, counterpartPos, remoteFacing, PORTAL_DEPTH_OFFSET);
 
         PortalMesh remoteMesh = PortalMesher.build(prepared, counterpartPos);
         if (remoteMesh.isEmpty()) return null;
@@ -121,9 +131,32 @@ public final class PortalViewManager {
         e.mesh = localMesh;
         e.builtAtMs = now;
 
-        // 提取门洞骨骼（保留，供后续 Mixin 遮罩使用）
         TardisAsset.Bedrock bedrockAsset = resolveBedrockAsset(state);
         e.hole = PortalDoorHole.extract(state.blockPos, localFacing, bedrockAsset);
+
+        // 计算门洞四个角点的极值
+        double minX = Math.min(Math.min(e.hole.tl().x, e.hole.tr().x), Math.min(e.hole.bl().x, e.hole.br().x));
+        double maxX = Math.max(Math.max(e.hole.tl().x, e.hole.tr().x), Math.max(e.hole.bl().x, e.hole.br().x));
+
+        double minY = Math.min(Math.min(e.hole.tl().y, e.hole.tr().y), Math.min(e.hole.bl().y, e.hole.br().y));
+        double maxY = Math.max(Math.max(e.hole.tl().y, e.hole.tr().y), Math.max(e.hole.bl().y, e.hole.br().y));
+
+        double minZ = Math.min(Math.min(e.hole.tl().z, e.hole.tr().z), Math.min(e.hole.bl().z, e.hole.br().z));
+        double maxZ = Math.max(Math.max(e.hole.tl().z, e.hole.tr().z), Math.max(e.hole.bl().z, e.hole.br().z));
+
+        // 往门内延伸 32 格，用于覆盖可能出现在门后的实体
+        Vec3 n = e.hole.normal().scale(-32);
+
+        // 组合成最终的 AABB
+        double boxMinX = Math.min(minX, minX + n.x);
+        double boxMaxX = Math.max(maxX, maxX + n.x);
+        double boxMinY = Math.min(minY, minY + n.y);
+        double boxMaxY = Math.max(maxY, maxY + n.y);
+        double boxMinZ = Math.min(minZ, minZ + n.z);
+        double boxMaxZ = Math.max(maxZ, maxZ + n.z);
+
+        // 稍微膨胀 1 格，防止实体在边缘闪烁
+        e.holeAABB = new AABB(boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ).inflate(1.0);
 
         return e;
     }
@@ -154,7 +187,6 @@ public final class PortalViewManager {
         vc.setNormal(pose, v.nx(), v.ny(), v.nz());
     }
 
-    // 暴露给 Mixin 获取当前所有活跃的门洞
     public java.util.Collection<PortalClipper.DoorHole> getActiveHoles() {
         java.util.List<PortalClipper.DoorHole> holes = new java.util.ArrayList<>();
         for (CacheEntry entry : cache.values()) {
@@ -163,9 +195,6 @@ public final class PortalViewManager {
         return holes;
     }
 
-    // =========================================================
-    //                     渲染对侧 BE 模型
-    // =========================================================
     private void renderBlockEntities(TardisDoorRenderState localState, CacheEntry entry,
                                      PoseStack poseStack, SubmitNodeCollector collector,
                                      CameraRenderState camera) {
@@ -177,19 +206,20 @@ public final class PortalViewManager {
         BlockPos min = center.offset(-r, -r, -r);
         BlockPos max = center.offset(r, r, r);
         Vec3 camPos = camera.pos;
-
         org.joml.Matrix4f transformMatrix = entry.transform.matrix();
 
         for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
             BlockEntity be = level.getBlockEntity(pos);
             if (be == null || be.isRemoved()) continue;
 
+            Vec3 localCenter = entry.transform.transform(Vec3.atCenterOf(pos));
+            if (!entry.holeAABB.contains(localCenter)) continue;
+
             int blockLight = level.getBrightness(LightLayer.BLOCK, pos);
             int skyLight = level.getBrightness(LightLayer.SKY, pos);
             int packedLight = (blockLight << 4) | (skyLight << 20);
 
             poseStack.pushPose();
-
             poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
             poseStack.mulPose(transformMatrix);
             poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
@@ -200,39 +230,26 @@ public final class PortalViewManager {
                     if (renderer instanceof TardisDoorRenderer doorRenderer) {
                         TardisDoorRenderState state = doorRenderer.createRenderState();
                         doorRenderer.extractRenderState(door, state, 1.0f, camera.pos, null);
-
                         state.counterpartPos = null;
                         state.lightCoords = packedLight;
-
                         doorRenderer.submit(state, poseStack, collector, camera);
                     }
                 }
-
                 if (be instanceof TardisConsoleBlockEntity console) {
                     Object renderer = Minecraft.getInstance().getBlockEntityRenderDispatcher().getRenderer(console);
                     if (renderer instanceof TardisConsoleRenderer consoleRenderer) {
                         TardisConsoleRenderState state = consoleRenderer.createRenderState();
                         consoleRenderer.extractRenderState(console, state, 1.0f, camera.pos, null);
-
                         state.lightCoords = packedLight;
-
                         consoleRenderer.submit(state, poseStack, collector, camera);
-                    } else {
-                        System.out.println("[BOTI] Console renderer missing for " + pos + " type=" + (renderer == null ? "null" : renderer.getClass().getName()));
                     }
                 }
-            } catch (Throwable t) {
-                System.err.println("[BOTI] Failed to render BE at " + pos + " (" + be.getClass().getSimpleName() + ")");
-                t.printStackTrace();
-            } finally {
+            } catch (Throwable ignored) {} finally {
                 poseStack.popPose();
             }
         }
     }
 
-    // =========================================================
-    //                     渲染对侧实体（仿 AIT 方案）
-    // =========================================================
     private void renderEntities(TardisDoorRenderState localState, CacheEntry entry,
                                 PoseStack poseStack, SubmitNodeCollector collector,
                                 CameraRenderState camera) {
@@ -245,10 +262,10 @@ public final class PortalViewManager {
         var dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
 
         for (Entity entity : level.entitiesForRendering()) {
-            if (entity == null || entity.isRemoved()) continue;
+            if (entity == null || entity.isRemoved() || entity.blockPosition().distSqr(center) > 32 * 32) continue;
 
-            // 距离剔除
-            if (entity.blockPosition().distSqr(center) > 32 * 32) continue;
+            Vec3 localCenter = entry.transform.transform(entity.position());
+            if (!entry.holeAABB.contains(localCenter)) continue;
 
             float partialTicks = 1.0f;
             double x = Mth.lerp(partialTicks, entity.xOld, entity.getX());
@@ -257,7 +274,6 @@ public final class PortalViewManager {
 
             try {
                 poseStack.pushPose();
-
                 poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
                 poseStack.mulPose(transformMatrix);
                 poseStack.translate(x, y, z);
@@ -266,18 +282,11 @@ public final class PortalViewManager {
                 if (renderState != null) {
                     dispatcher.submit(renderState, camera, 0, 0, 0, poseStack, collector);
                 }
-
                 poseStack.popPose();
-            } catch (Throwable t) {
-                System.err.println("[BOTI] Failed to render entity " + entity.getType());
-                t.printStackTrace();
-            }
+            } catch (Throwable ignored) {}
         }
     }
 
-    // =========================================================
-    //                     辅助方法
-    // =========================================================
     private static TardisAsset.Bedrock resolveBedrockAsset(TardisDoorRenderState state) {
         if (state.appearanceId == null) return null;
         TardisAppearance app = TardisAppearanceRegistry.get(state.appearanceId);

@@ -13,15 +13,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(LevelRenderer.class)
 public class LevelRendererMixin {
-
     @Inject(method = "executeSolid", at = @At("HEAD"))
-    private void onExecuteSolid(ChunkSectionsToRender chunkSectionsToRender, FeatureRenderDispatcher.PreparedFrame featureFrame, RenderPass renderPass, CallbackInfo ci) {
+    private void onExecuteSolid(ChunkSectionsToRender chunkSectionsToRender,
+                                FeatureRenderDispatcher.PreparedFrame featureFrame,
+                                RenderPass renderPass, CallbackInfo ci) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null) return;
-
-        // 获取当前相机状态
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
-        // 在渲染地形之前，强行把门洞位置的深度填满，这样地形就被遮住了
         PortalMaskRenderer.renderMask(renderPass, camera);
     }
 }
