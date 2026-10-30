@@ -17,7 +17,7 @@ public class PortalCamera {
         Vec3 localCenter = Vec3.atCenterOf(localPos);
         Vec3 remoteCenter = Vec3.atCenterOf(remotePos);
 
-        // 角度计算：门朝向对齐
+        // 计算空间折叠旋转角度
         float angle = localFacing.toYRot() - remoteFacing.getOpposite().toYRot();
 
         Matrix4f foldMatrix = new Matrix4f()
@@ -29,8 +29,11 @@ public class PortalCamera {
         foldMatrix.transformPosition(tempPos);
         this.position = new Vec3(tempPos.x, tempPos.y, tempPos.z);
 
-        // 视图矩阵
-        this.viewMatrix = new Matrix4f(foldMatrix).mul(playerView);
+        this.viewMatrix = new Matrix4f()
+                .translate((float) -position.x, (float) -position.y, (float) -position.z)
+                .rotateY((float) Math.toRadians(angle))
+                .mul(playerView);
+
         this.projectionMatrix = new Matrix4f(playerProjection);
     }
 }
