@@ -38,12 +38,11 @@ public class PortalMaskRenderer {
         BufferBuilder builder = new BufferBuilder(
                 byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION);
 
-        for (PortalClipper.DoorHole hole : holes) {
-            // 严格按 tl -> bl -> br -> tr 的逆时针顺序画，防止背面剔除
+        for (PortalDoorHole.DoorHole hole : holes) {
             putVertex(builder, hole.tl());
-            putVertex(builder, hole.bl());
-            putVertex(builder, hole.br());
             putVertex(builder, hole.tr());
+            putVertex(builder, hole.br());
+            putVertex(builder, hole.bl());
         }
 
         MeshData meshData = builder.build();

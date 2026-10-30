@@ -1,36 +1,34 @@
 package doctor_m.client.tardis.portal;
 
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import doctor_m.block.entity.TardisConsoleBlockEntity;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.commands.RenderPass;
+import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
+import com.mojang.renderpearl.api.pipeline.PrimitiveTopology;
+import com.mojang.renderpearl.api.textures.FilterMode;
 import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.client.stp.StpClientState;
-import doctor_m.client.tardis.render.TardisConsoleRenderState;
-import doctor_m.client.tardis.render.TardisConsoleRenderer;
-import doctor_m.client.tardis.render.TardisDoorRenderState;
-import doctor_m.client.tardis.render.TardisDoorRenderer;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.client.renderer.SubmitNodeCollector;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.util.Mth;
 import net.minecraft.util.Util;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.LightLayer;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
+import org.joml.Vector3f;
+import org.joml.Vector4f;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class PortalViewManager {
 
@@ -40,262 +38,200 @@ public final class PortalViewManager {
         return INSTANCE;
     }
 
-    private static final long REBUILD_INTERVAL_MS = 250L;
-    private static final double MAX_RENDER_DISTANCE_SQ = 64.0 * 64.0;
-
-    // 把对面的世界往前拉一点，刚好在 Depth Mask 前面，完美显示
-    private static final double PORTAL_DEPTH_OFFSET = -0.1;
-
     private static final class CacheEntry {
         ClientLevel sourceLevel;
-        PortalTransform transform;
         PortalMesh mesh;
-        PortalClipper.DoorHole hole;
-        AABB holeAABB;
+        PortalFramebuffer framebuffer;
+        PortalDoorHole.DoorHole hole;
         long builtAtMs;
     }
 
     private final Map<BlockPos, CacheEntry> cache = new HashMap<>();
+    private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
 
     private PortalViewManager() {}
 
-    public void submitPortal(TardisDoorRenderState state, PoseStack poseStack,
-                             SubmitNodeCollector collector, CameraRenderState camera) {
-        if (state.blockPos == null) return;
-        if (camera.pos.distanceToSqr(Vec3.atCenterOf(state.blockPos)) > MAX_RENDER_DISTANCE_SQ) return;
+    public void trackActiveDoor(TardisDoorBlockEntity door) {
+        activeDoors.add(door);
+    }
 
+    public void renderOffscreenPass() {
+        var mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+
+        var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
         ClientLevel prepared = StpClientState.portalLevel();
-        if (prepared == null) return;
-
-        StpClientState.portalKeepAlive();
-
-        CacheEntry entry = cache.get(state.blockPos);
-        long now = Util.getMillis();
-        boolean needRebuild = entry == null || entry.sourceLevel != prepared || now - entry.builtAtMs > REBUILD_INTERVAL_MS;
-
-        if (needRebuild) {
-            entry = buildEntry(state, prepared, now);
-            if (entry == null) return;
-            cache.put(state.blockPos, entry);
+        if (prepared == null) {
+            activeDoors.clear();
+            return;
         }
 
-        // ★ 核心需求：如果你绕到了门洞背面，直接停止渲染！
-        Vec3 holeCenter = entry.hole.center();
-        Vec3 holeNormal = entry.hole.normal();
-        Vec3 toCamera = camera.pos.subtract(holeCenter);
+        for (var door : activeDoors) {
+            if (door.isRemoved() || !door.isOpen()) continue;
 
-        if (toCamera.dot(holeNormal) <= 0.0) {
-            return; // 在背面，什么都不画
+            CacheEntry entry = cache.computeIfAbsent(door.getBlockPos(), k -> new CacheEntry());
+            entry.framebuffer = entry.framebuffer == null ? new PortalFramebuffer() : entry.framebuffer;
+            entry.framebuffer.resize(mc.getWindow().getWidth(), mc.getWindow().getHeight());
+
+            if (entry.mesh == null || Util.getMillis() - entry.builtAtMs > 250) {
+                entry.mesh = PortalMesher.build(prepared, door.getCounterpartPos());
+
+                TardisAppearance app = TardisAppearanceRegistry.get(door.getAppearance());
+                TardisAsset.Bedrock asset = null;
+                if (app != null) {
+                    TardisAsset a = door.isExterior() ? app.exterior() : app.interior();
+                    if (a instanceof TardisAsset.Bedrock b) asset = b;
+                }
+
+                entry.hole = PortalDoorHole.extract(door.getBlockPos(),
+                        door.getBlockState().getValue(doctor_m.block.AbstractTardisDoorBlock.FACING), asset);
+                entry.builtAtMs = Util.getMillis();
+            }
+
+            if (!entry.mesh.isEmpty() && entry.hole != null) {
+                doRenderToTarget(entry, door, camera);
+            }
+        }
+        activeDoors.clear();
+    }
+
+    private void doRenderToTarget(CacheEntry entry, TardisDoorBlockEntity door, CameraRenderState camera) {
+        var target = entry.framebuffer.getTarget();
+        var mc = Minecraft.getInstance();
+
+        PortalCamera portalCam = new PortalCamera(
+                door.getBlockPos(), door.getBlockState().getValue(doctor_m.block.AbstractTardisDoorBlock.FACING),
+                door.getCounterpartPos(), door.getCounterpartFacing(),
+                camera.pos, camera.viewRotationMatrix, camera.projectionMatrix
+        );
+
+        try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
+                RenderPassDescriptor.builder(() -> "Tardis Portal Offscreen")
+                        .withColorAttachment(target.getColorTextureView(), Optional.of(new Vector4f(0, 0, 0, 0)))
+                        .withDepthAttachment(target.getDepthTextureView(), OptionalDouble.of(1.0))
+                        .build())) {
+
+            RenderSystem.bindDefaultUniforms(pass);
+
+            var projection = RenderSystem.getProjectionMatrixBuffer();
+            if (projection != null) pass.setUniform("Projection", projection);
+
+            // ★ 这里完全使用包含平移的 viewMatrix（表示虚拟相机在对面的位置）
+            var transform = RenderSystem.getDynamicUniforms().writeTransform(portalCam.viewMatrix, new Vector4f(1,1,1,1), new Vector3f(), new Matrix4f());
+            pass.setUniform("DynamicTransforms", transform);
+
+            var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
+            pass.setUniform("Sampler0", mc.getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView(), sampler);
+            pass.setUniform("Sampler2", mc.gameRenderer.lightmap(), sampler);
+
+            var pipeline = RenderSystem.getCompiledPipeline(RenderPipelines.CUTOUT_BLOCK);
+            pass.setPipeline(pipeline);
+
+            // ★ 提交绝对坐标的 Mesh
+            submitMeshToPass(entry.mesh, pass);
+        }
+    }
+
+    private void submitMeshToPass(PortalMesh mesh, RenderPass pass) {
+        ByteBufferBuilder byteBuffer = new ByteBufferBuilder(mesh.quads().size() * 4 * 32);
+        BufferBuilder builder = new BufferBuilder(byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.BLOCK);
+
+        for (PortalQuad q : mesh.quads()) {
+            for (PortalVertex v : q.vertices()) {
+                builder.addVertex(v.x(), v.y(), v.z())
+                        .setColor(v.color())
+                        .setUv(v.u(), v.v())
+                        .setLight(v.light());
+            }
         }
 
-        // 用四面刀把对面世界切得严丝合缝
-        List<PortalQuad> visible = PortalClipper.clip(
-                entry.mesh, camera.cullFrustum,
-                entry.transform.planePoint(), entry.transform.planeNormal(),
-                entry.hole);
-
-        if (!visible.isEmpty()) {
-            collector.submitCustomGeometry(poseStack, RenderTypes.cutoutMovingBlock(),
-                    (pose, vc) -> {
-                        for (PortalQuad q : visible) {
-                            emitVertex(pose, vc, state.blockPos, q.a());
-                            emitVertex(pose, vc, state.blockPos, q.b());
-                            emitVertex(pose, vc, state.blockPos, q.c());
-                            emitVertex(pose, vc, state.blockPos, q.d());
-                        }
-                    });
+        MeshData data = builder.build();
+        if (data != null) {
+            GpuBuffer buf = RenderSystem.getDevice().createBuffer(() -> "portal_offscreen_vbo", 32 | 8 | 2, data.vertexBuffer().remaining());
+            try (var view = buf.map(false, true)) {
+                var src = data.vertexBuffer();
+                src.position(0);
+                view.data().put(src);
+            }
+            pass.setVertexBuffer(0, buf.slice());
+            var autoIndices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
+            pass.setIndexBuffer(autoIndices.getBuffer(mesh.quads().size() * 4), autoIndices.type());
+            pass.drawIndexed(mesh.quads().size() * 6, 1, 0, 0, 0);
+            buf.close();
+            data.close();
         }
-
-        renderBlockEntities(state, entry, poseStack, collector, camera);
-        renderEntities(state, entry, poseStack, collector, camera);
+        byteBuffer.close();
     }
 
-    private CacheEntry buildEntry(TardisDoorRenderState state, ClientLevel prepared, long now) {
-        BlockPos counterpartPos = state.counterpartPos;
-        if (counterpartPos == null) return null;
+    public void renderPortalQuad(RenderPass pass) {
+        var mc = Minecraft.getInstance();
+        if (mc.level == null) return;
+        var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
+        var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
 
-        var localFacing = state.facing != null ? state.facing : Direction.NORTH;
-        var remoteFacing = state.counterpartFacing != null ? state.counterpartFacing : Direction.NORTH;
+        var projection = RenderSystem.getProjectionMatrixBuffer();
+        if (projection != null) pass.setUniform("Projection", projection);
 
-        PortalTransform transform = PortalTransform.fromDoorToDoor(
-                state.blockPos, localFacing, counterpartPos, remoteFacing, PORTAL_DEPTH_OFFSET);
+        // ★ 主世界相机矩阵：包含平移。这要求顶点必须传绝对世界坐标。
+        Matrix4f camMat = new Matrix4f(camera.viewRotationMatrix);
+        camMat.translate((float)-camera.pos.x, (float)-camera.pos.y, (float)-camera.pos.z);
+        var transform = RenderSystem.getDynamicUniforms().writeTransform(camMat, new Vector4f(1,1,1,1), new Vector3f(), new Matrix4f());
+        pass.setUniform("DynamicTransforms", transform);
 
-        PortalMesh remoteMesh = PortalMesher.build(prepared, counterpartPos);
-        if (remoteMesh.isEmpty()) return null;
+        for (CacheEntry entry : cache.values()) {
+            if (entry.framebuffer == null || entry.hole == null) continue;
 
-        PortalMesh localMesh = transformMesh(transform, remoteMesh);
+            var target = entry.framebuffer.getTarget();
+            pass.setUniform("Sampler0", target.getColorTextureView(), sampler);
 
-        CacheEntry e = new CacheEntry();
-        e.sourceLevel = prepared;
-        e.transform = transform;
-        e.mesh = localMesh;
-        e.builtAtMs = now;
+            // ★ 使用原版最稳的 GUI_TEXTURED 渲染贴图
+            pass.setPipeline(RenderSystem.getCompiledPipeline(RenderPipelines.GUI_TEXTURED));
 
-        TardisAsset.Bedrock bedrockAsset = resolveBedrockAsset(state);
-        e.hole = PortalDoorHole.extract(state.blockPos, localFacing, bedrockAsset);
+            ByteBufferBuilder bb = new ByteBufferBuilder(256);
+            BufferBuilder builder = new BufferBuilder(bb, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-        // 计算门洞四个角点的极值
-        double minX = Math.min(Math.min(e.hole.tl().x, e.hole.tr().x), Math.min(e.hole.bl().x, e.hole.br().x));
-        double maxX = Math.max(Math.max(e.hole.tl().x, e.hole.tr().x), Math.max(e.hole.bl().x, e.hole.br().x));
+            // ★ 必须传 QUADS，并严格保证逆时针顺序，绝对不出现大三角形
+            putQuadVertex(builder, entry.hole.tl(), 0, 0);
+            putQuadVertex(builder, entry.hole.bl(), 0, 1);
+            putQuadVertex(builder, entry.hole.br(), 1, 1);
+            putQuadVertex(builder, entry.hole.tr(), 1, 0);
 
-        double minY = Math.min(Math.min(e.hole.tl().y, e.hole.tr().y), Math.min(e.hole.bl().y, e.hole.br().y));
-        double maxY = Math.max(Math.max(e.hole.tl().y, e.hole.tr().y), Math.max(e.hole.bl().y, e.hole.br().y));
-
-        double minZ = Math.min(Math.min(e.hole.tl().z, e.hole.tr().z), Math.min(e.hole.bl().z, e.hole.br().z));
-        double maxZ = Math.max(Math.max(e.hole.tl().z, e.hole.tr().z), Math.max(e.hole.bl().z, e.hole.br().z));
-
-        // 往门内延伸 32 格，用于覆盖可能出现在门后的实体
-        Vec3 n = e.hole.normal().scale(-32);
-
-        // 组合成最终的 AABB
-        double boxMinX = Math.min(minX, minX + n.x);
-        double boxMaxX = Math.max(maxX, maxX + n.x);
-        double boxMinY = Math.min(minY, minY + n.y);
-        double boxMaxY = Math.max(maxY, maxY + n.y);
-        double boxMinZ = Math.min(minZ, minZ + n.z);
-        double boxMaxZ = Math.max(maxZ, maxZ + n.z);
-
-        // 稍微膨胀 1 格，防止实体在边缘闪烁
-        e.holeAABB = new AABB(boxMinX, boxMinY, boxMinZ, boxMaxX, boxMaxY, boxMaxZ).inflate(1.0);
-
-        return e;
-    }
-
-    private static PortalMesh transformMesh(PortalTransform t, PortalMesh remote) {
-        List<PortalQuad> local = new ArrayList<>(remote.quads().size());
-        for (PortalQuad q : remote.quads()) {
-            local.add(new PortalQuad(
-                    transformVertex(t, q.a()),
-                    transformVertex(t, q.b()),
-                    transformVertex(t, q.c()),
-                    transformVertex(t, q.d())));
+            MeshData meshData = builder.build();
+            if (meshData != null) {
+                GpuBuffer buf = RenderSystem.getDevice().createBuffer(() -> "portal_quad_vbo", 32 | 8 | 2, meshData.vertexBuffer().remaining());
+                try (var view = buf.map(false, true)) {
+                    var src = meshData.vertexBuffer();
+                    src.position(0);
+                    view.data().put(src);
+                }
+                pass.setVertexBuffer(0, buf.slice());
+                var autoIndices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
+                pass.setIndexBuffer(autoIndices.getBuffer(4), autoIndices.type());
+                pass.drawIndexed(6, 1, 0, 0, 0);
+                buf.close();
+                meshData.close();
+            }
+            bb.close();
         }
-        return new PortalMesh(local);
     }
 
-    private static PortalVertex transformVertex(PortalTransform t, PortalVertex v) {
-        Vec3 p = t.transform(new Vec3(v.x(), v.y(), v.z()));
-        return new PortalVertex((float) p.x, (float) p.y, (float) p.z,
-                v.color(), v.u(), v.v(), v.light(), v.nx(), v.ny(), v.nz());
+    private void putQuadVertex(BufferBuilder builder, Vec3 worldPos, float u, float v) {
+        // ★ 传入绝对坐标
+        builder.addVertex((float)worldPos.x, (float)worldPos.y, (float)worldPos.z)
+                .setUv(u, v)
+                .setColor(0xFFFFFFFF);
     }
 
-    private static void emitVertex(PoseStack.Pose pose, VertexConsumer vc, BlockPos doorPos, PortalVertex v) {
-        vc.addVertex(pose, v.x() - doorPos.getX(), v.y() - doorPos.getY(), v.z() - doorPos.getZ());
-        vc.setColor(v.color());
-        vc.setUv(v.u(), v.v());
-        vc.setLight(v.light());
-        vc.setNormal(pose, v.nx(), v.ny(), v.nz());
-    }
-
-    public java.util.Collection<PortalClipper.DoorHole> getActiveHoles() {
-        java.util.List<PortalClipper.DoorHole> holes = new java.util.ArrayList<>();
+    public java.util.Collection<PortalDoorHole.DoorHole> getActiveHoles() {
+        java.util.List<PortalDoorHole.DoorHole> holes = new java.util.ArrayList<>();
         for (CacheEntry entry : cache.values()) {
             if (entry.hole != null) holes.add(entry.hole);
         }
         return holes;
     }
 
-    private void renderBlockEntities(TardisDoorRenderState localState, CacheEntry entry,
-                                     PoseStack poseStack, SubmitNodeCollector collector,
-                                     CameraRenderState camera) {
-        ClientLevel level = entry.sourceLevel;
-        BlockPos center = localState.counterpartPos;
-        if (center == null) return;
-
-        int r = 16;
-        BlockPos min = center.offset(-r, -r, -r);
-        BlockPos max = center.offset(r, r, r);
-        Vec3 camPos = camera.pos;
-        org.joml.Matrix4f transformMatrix = entry.transform.matrix();
-
-        for (BlockPos pos : BlockPos.betweenClosed(min, max)) {
-            BlockEntity be = level.getBlockEntity(pos);
-            if (be == null || be.isRemoved()) continue;
-
-            Vec3 localCenter = entry.transform.transform(Vec3.atCenterOf(pos));
-            if (!entry.holeAABB.contains(localCenter)) continue;
-
-            int blockLight = level.getBrightness(LightLayer.BLOCK, pos);
-            int skyLight = level.getBrightness(LightLayer.SKY, pos);
-            int packedLight = (blockLight << 4) | (skyLight << 20);
-
-            poseStack.pushPose();
-            poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
-            poseStack.mulPose(transformMatrix);
-            poseStack.translate(pos.getX(), pos.getY(), pos.getZ());
-
-            try {
-                if (be instanceof TardisDoorBlockEntity door) {
-                    Object renderer = Minecraft.getInstance().getBlockEntityRenderDispatcher().getRenderer(door);
-                    if (renderer instanceof TardisDoorRenderer doorRenderer) {
-                        TardisDoorRenderState state = doorRenderer.createRenderState();
-                        doorRenderer.extractRenderState(door, state, 1.0f, camera.pos, null);
-                        state.counterpartPos = null;
-                        state.lightCoords = packedLight;
-                        doorRenderer.submit(state, poseStack, collector, camera);
-                    }
-                }
-                if (be instanceof TardisConsoleBlockEntity console) {
-                    Object renderer = Minecraft.getInstance().getBlockEntityRenderDispatcher().getRenderer(console);
-                    if (renderer instanceof TardisConsoleRenderer consoleRenderer) {
-                        TardisConsoleRenderState state = consoleRenderer.createRenderState();
-                        consoleRenderer.extractRenderState(console, state, 1.0f, camera.pos, null);
-                        state.lightCoords = packedLight;
-                        consoleRenderer.submit(state, poseStack, collector, camera);
-                    }
-                }
-            } catch (Throwable ignored) {} finally {
-                poseStack.popPose();
-            }
-        }
-    }
-
-    private void renderEntities(TardisDoorRenderState localState, CacheEntry entry,
-                                PoseStack poseStack, SubmitNodeCollector collector,
-                                CameraRenderState camera) {
-        ClientLevel level = entry.sourceLevel;
-        BlockPos center = localState.counterpartPos;
-        if (center == null) return;
-
-        Vec3 camPos = camera.pos;
-        org.joml.Matrix4f transformMatrix = entry.transform.matrix();
-        var dispatcher = Minecraft.getInstance().getEntityRenderDispatcher();
-
-        for (Entity entity : level.entitiesForRendering()) {
-            if (entity == null || entity.isRemoved() || entity.blockPosition().distSqr(center) > 32 * 32) continue;
-
-            Vec3 localCenter = entry.transform.transform(entity.position());
-            if (!entry.holeAABB.contains(localCenter)) continue;
-
-            float partialTicks = 1.0f;
-            double x = Mth.lerp(partialTicks, entity.xOld, entity.getX());
-            double y = Mth.lerp(partialTicks, entity.yOld, entity.getY());
-            double z = Mth.lerp(partialTicks, entity.zOld, entity.getZ());
-
-            try {
-                poseStack.pushPose();
-                poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
-                poseStack.mulPose(transformMatrix);
-                poseStack.translate(x, y, z);
-
-                var renderState = dispatcher.extractEntity(entity, partialTicks);
-                if (renderState != null) {
-                    dispatcher.submit(renderState, camera, 0, 0, 0, poseStack, collector);
-                }
-                poseStack.popPose();
-            } catch (Throwable ignored) {}
-        }
-    }
-
-    private static TardisAsset.Bedrock resolveBedrockAsset(TardisDoorRenderState state) {
-        if (state.appearanceId == null) return null;
-        TardisAppearance app = TardisAppearanceRegistry.get(state.appearanceId);
-        if (app == null) return null;
-        TardisAsset a = state.exterior ? app.exterior() : app.interior();
-        return a instanceof TardisAsset.Bedrock b ? b : null;
-    }
-
     public void invalidateAll() {
         cache.clear();
+        activeDoors.clear();
     }
 }

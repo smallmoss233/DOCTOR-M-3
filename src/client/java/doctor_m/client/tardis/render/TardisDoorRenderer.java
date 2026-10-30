@@ -3,7 +3,7 @@ package doctor_m.client.tardis.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
-import doctor_m.client.tardis.portal.PortalViewManager;
+import doctor_m.client.tardis.portal.PortalViewManager; // ★ 引入
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
@@ -30,7 +30,6 @@ public class TardisDoorRenderer
         implements BlockEntityRenderer<TardisDoorBlockEntity, TardisDoorRenderState> {
 
     private static final Direction MODEL_FACING = Direction.NORTH;
-
     private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
     private record AnimState(boolean lastOpen, long startNs, long lastSeenMs) {}
 
@@ -67,6 +66,12 @@ public class TardisDoorRenderer
 
         BlockPos pos = be.getBlockPos();
         boolean isOpen = be.isOpen();
+
+        // ★ 将此门注册到 PortalViewManager 中，方便离屏渲染获取
+        if (isOpen && state.counterpartPos != null) {
+            PortalViewManager.get().trackActiveDoor(be);
+        }
+
         long nowNs = System.nanoTime();
         long nowMs = Util.getMillis();
 
@@ -85,16 +90,8 @@ public class TardisDoorRenderer
     @Override
     public void submit(TardisDoorRenderState state, PoseStack poseStack,
                        SubmitNodeCollector collector, CameraRenderState camera) {
-        // 双门方块只在下半提交，避免门本体 + 门户各画两遍
         if (!state.renderThis) return;
-
-        // 1. 门本体（appearance 驱动）——即使它拿不到 asset 也不影响门户
         submitDoorBody(state, poseStack, collector);
-
-        // 2. BOTI 门户空间（M1：门开着 + 有对端锚点）
-        if (state.open && state.counterpartPos != null) {
-            PortalViewManager.get().submitPortal(state, poseStack, collector, camera);
-        }
     }
 
     private void submitDoorBody(TardisDoorRenderState state, PoseStack poseStack,
@@ -115,7 +112,6 @@ public class TardisDoorRenderer
         BedrockRenderPipeline.SampledAnim sa =
                 BedrockRenderPipeline.sample(b.animation(), animName, state.animElapsedSec);
 
-        // 根据 alpha 选择渲染类型
         RenderType rt = state.fadeAlpha < 0.999f
                 ? RenderTypes.translucentMovingBlock()
                 : RenderTypes.cutoutMovingBlock();
