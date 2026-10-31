@@ -23,7 +23,7 @@ import java.util.List;
 public final class PortalMesher {
 
     /** 扫描半径（方块）。门周围 2–3 个 section ≈ 32–48 格。 */
-    private static final int SCAN_RADIUS = 24;
+    private static final int SCAN_RADIUS = 16;
 
     private PortalMesher() {}
 

@@ -102,7 +102,26 @@ public final class PortalViewManager {
      */
     private static final long MESH_REBUILD_INTERVAL_MS = 200L;
 
-    private final Map<DoorKey, CacheEntry> cache = new HashMap<>();
+    /**
+     * 同时缓存的门户离屏缓冲数量上限。
+     *
+     * <p>每扇开着的门都需要一张颜色 + 深度离屏纹理（半分辨率）。门越多，
+     * 显存和填充率增长越快；门户本来就是"当前画面里能看到的几扇门"，
+     * 缓存上限以 8 扇为够，多了按 LRU 淘汰最久未使用的，释放其 FBO/VBO。
+     */
+    private static final int MAX_CACHED_PORTALS = 8;
+
+    // access-order：最近访问的排在后面，淘汰时优先移除头部（最久未使用）
+    private final LinkedHashMap<DoorKey, CacheEntry> cache = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<DoorKey, CacheEntry> eldest) {
+            if (size() > MAX_CACHED_PORTALS) {
+                dispose(eldest.getValue());
+                return true;
+            }
+            return false;
+        }
+    };
     private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
 
     /** 资源重载线程只置位；真正的 GPU 资源销毁留给渲染线程。 */

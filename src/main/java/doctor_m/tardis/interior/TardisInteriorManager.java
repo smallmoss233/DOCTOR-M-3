@@ -56,15 +56,24 @@ public final class TardisInteriorManager {
         Identifier templateId = interiorTemplateId(newId);
         if (server.getStructureTemplateManager().get(templateId).isEmpty()) return false;
 
-        BlockPos[] region = interiorRegion(server, data.interiorId());
-        data.beginInteriorChange(newId, region[0], region[1]);
-        TardisManager.getRegistry(server).put(data);
-
         ServerLevel level = TardisManager.getInteriorLevel(server, data);
         if (level != null) {
             for (ServerPlayer p : level.players()) {
                 p.sendSystemMessage(Component.translatable("doctor_m.tardis.interior.changing").withStyle(ChatFormatting.GOLD));
             }
+
+            if (!level.players().isEmpty()) {
+                TardisDoorManager.setDoorOpen(server, data, true);
+            }
+        }
+
+        BlockPos[] region = interiorRegion(server, data.interiorId());
+        data.beginInteriorChange(newId, region[0], region[1]);
+        TardisManager.getRegistry(server).put(data);
+
+        if (level != null && level.players().isEmpty()) {
+            TardisDoorManager.setDoorOpen(server, data, false);
+            data.setInteriorSwapDelay(SWAP_LOCK_DELAY_TICKS);
         }
         return true;
     }
@@ -72,11 +81,8 @@ public final class TardisInteriorManager {
     public static void tickInteriorChange(MinecraftServer server, TardisData data) {
         ServerLevel level = TardisManager.getInteriorLevel(server, data);
         if (level == null) return;
-
-        if (!level.players().isEmpty()) {
-            if (data.interiorSwapDelay() > 0) data.setInteriorSwapDelay(0);
-            return;
-        }
+        
+        if (!level.players().isEmpty()) return;
 
         if (data.interiorSwapDelay() == 0) {
             TardisDoorManager.setDoorOpen(server, data, false);
@@ -173,6 +179,9 @@ public final class TardisInteriorManager {
         data.setInteriorId(newId);
         data.endInteriorChange();
         TardisManager.getRegistry(server).put(data);
+
+        BlockPos[] newRegion = interiorRegion(server, newId);
+        clearRegion(level, newRegion[0], newRegion[1]);
 
         TardisInteriorLoader.build(server, level, data);
 

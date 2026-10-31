@@ -292,6 +292,15 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
         TardisData data = findTardis(server, sl, base);
         if (data == null) return InteractionResult.PASS;
 
+        // 更换内饰期间门状态冻结，玩家右键无法开关门，避免内部人被反锁在里面
+        if (data.isInteriorChanging()) {
+            if (player instanceof ServerPlayer sp) {
+                sp.sendSystemMessage(Component.translatable(
+                        "message.doctor_m.tardis.door_locked"));
+            }
+            return InteractionResult.SUCCESS;
+        }
+
         if (!data.state().canOpenDoors()) {
             if (player instanceof ServerPlayer sp) {
                 sp.sendSystemMessage(Component.translatable(
