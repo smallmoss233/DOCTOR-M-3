@@ -1,9 +1,9 @@
 package doctor_m.client.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import doctor_m.client.tardis.appearance.TardisAppearanceAssets;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
-import doctor_m.client.tardis.appearance.TardisAppearanceAssets;
 import mosslib.core.bedrock.BedrockCache;
 import mosslib.util.Text;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;

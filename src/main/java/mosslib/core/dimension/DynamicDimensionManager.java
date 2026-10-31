@@ -29,6 +29,11 @@ public final class DynamicDimensionManager {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
+    /** 在没有任何玩家时可以被清理的维度：维度 -> 最后玩家离开的 tick。 */
+    private static final Map<ResourceKey<Level>, Long> IDLE_SINCE = new HashMap<>();
+    /** 维度第一次出现在 Tardis 注册表时记录的 tick；0 表示未知（保守起见不清理）。 */
+    private static final Map<ResourceKey<Level>, Long> CREATED_AT = new HashMap<>();
+
     private DynamicDimensionManager() {}
 
 // ================================================================
@@ -46,15 +51,64 @@ public final class DynamicDimensionManager {
      */
     public static void loadAll(MinecraftServer server) {
         DimensionRegistryData registry = getRegistryData(server);
+        // 清掉历史脏数据（如 "tardis/null"），否则下面会真的去创建这些维度。
+        registry.cleanup();
         Set<ResourceKey<Level>> keys = registry.all();
-        LOGGER.info("[DM] Loading {} dynamic dimension(s)", keys.size());
+        long now = server.getTickCount();
         for (ResourceKey<Level> key : keys) {
+            CREATED_AT.putIfAbsent(key, now);
             ServerLevel level = getOrCreate(server, key);
             if (level == null) {
                 LOGGER.warn("[DM] Failed to restore dimension {}", key.identifier());
             }
         }
     }
+
+    /**
+     * 每 tick 调用：清理长时间无玩家的闲置维度。
+     *
+     * <p>正在被玩家占用的维度（{@code level.players()} 非空）永远不会被卸载，
+     * 所以正常游玩时感知为零。只有完全没人在里面且超过 5 分钟才会释放。
+     *
+     * <p>建议在 {@code ServerTickEvents#END_SERVER_TICK} 调一次，比如：
+     * <pre>{@code ServerTickEvents.END_SERVER_TICK.register(DynamicDimensionManager::tick);}</pre>
+     */
+    public static void tick(MinecraftServer server) {
+        long now = server.getTickCount();
+
+        for (Map.Entry<ResourceKey<Level>, Long> e : new ArrayList<>(IDLE_SINCE.entrySet())) {
+            ResourceKey<Level> key = e.getKey();
+            if (now - e.getValue() < IDLE_TICKS) continue;
+
+            // 已有玩家在里面 → 不是闲置
+            ServerLevel level = server.getLevel(key);
+            if (level != null && !level.players().isEmpty()) {
+                IDLE_SINCE.remove(key);
+                continue;
+            }
+
+            unload(server, key);
+            IDLE_SINCE.remove(key);
+        }
+    }
+
+    /**
+     * 把维度标记为闲置开始计时。
+     *
+     * <p>调用时机：维度上最后一个玩家离开时。如果下次玩家进入前 {@link
+     * #IDLE_TICKS} tick 内回来，完全不产生重建开销；否则会在下次进入时
+     * 从存档恢复。
+     */
+    public static void noteIdleStart(ResourceKey<Level> key, long now) {
+        IDLE_SINCE.putIfAbsent(key, now);
+    }
+
+    /** 把维度从闲置计时里移出（玩家进入时调用）。 */
+    public static void noteIdleEnd(ResourceKey<Level> key) {
+        IDLE_SINCE.remove(key);
+    }
+
+    private static final long IDLE_TICKS = 20L * 60L * 5L; // 5 分钟
 
 // ================================================================
 //                      公开 API（修改）
@@ -72,6 +126,7 @@ public final class DynamicDimensionManager {
         if (level == null) return null;
 
         acc.mosslib$getLevels().put(key, level);
+        CREATED_AT.putIfAbsent(key, (long) server.getTickCount());
         LOGGER.info("[DM] Created dynamic dimension {}", key.identifier());
         return level;
     }

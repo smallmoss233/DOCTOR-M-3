@@ -3,8 +3,6 @@ package doctor_m.block.entity;
 import doctor_m.block.TardisConsoleBlock;
 import doctor_m.register.DMBlockEntities;
 import doctor_m.tardis.console.ConsoleControlSync;
-import doctor_m.tardis.console.TardisConsoleAppearance;
-import doctor_m.tardis.console.TardisConsoleRegistry;
 import doctor_m.tardis.console.control.ConsoleControlEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -19,9 +17,11 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
-import net.minecraft.world.phys.AABB;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 /**
  * 控制台方块实体。
@@ -169,10 +169,8 @@ public class TardisConsoleBlockEntity extends BlockEntity {
         if (!(level instanceof ServerLevel sl)) return;
         if (!(getBlockState().getBlock() instanceof TardisConsoleBlock)) return;
 
-        TardisConsoleAppearance app = TardisConsoleRegistry.get(appearanceId);
-        if (app == null) return;
-
-        ConsoleControlSync.reconcile(sl, getBlockPos(), app, controls, entries);
+        // 不需要外观注册表：客户端把每个控件的配置一起发过来了（专用服务器也适用）。
+        ConsoleControlSync.reconcile(sl, getBlockPos(), controls, entries);
     }
 
     private Direction currentFacing() {

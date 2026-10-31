@@ -18,7 +18,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceManager;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

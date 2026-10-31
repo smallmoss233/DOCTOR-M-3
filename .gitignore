@@ -35,6 +35,11 @@ bin/
 
 *.DS_Store
 
+# dev logs / scratch (not part of the mod)
+
+logs/
+.zcode/
+
 # fabric
 
 run/

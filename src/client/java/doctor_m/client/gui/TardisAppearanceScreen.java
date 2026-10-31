@@ -1,11 +1,11 @@
 package doctor_m.client.gui;
 
 import doctor_m.client.gui.pip.GuiBedrockModelRenderState;
+import doctor_m.client.tardis.appearance.TardisAppearanceAssets;
 import doctor_m.network.SetTardisAppearancePayload;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
-import doctor_m.client.tardis.appearance.TardisAppearanceAssets;
 import mosslib.core.bedrock.BedrockModelRef;
 import mosslib.core.render.BedrockRenderPipeline;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;

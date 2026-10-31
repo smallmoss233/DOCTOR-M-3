@@ -107,7 +107,7 @@ DM3 依赖其运行时动态维度管理、声明式网络包与内容注册、
 |------|------|
 | **Minecraft** | 26.3 |
 | **Fabric Loader** | 0.19.5+ |
-| **Fabric API** | 0.160.5+26.3 |
+| **Fabric API** | 0.161.0+26.3 |
 | **Java** | 25+ |
 
 > 从 26.1 起 Minecraft 不再混淆，Loom 默认使用 Mojang 官方映射（Mojmap），

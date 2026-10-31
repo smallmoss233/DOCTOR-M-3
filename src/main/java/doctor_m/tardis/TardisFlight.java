@@ -9,7 +9,6 @@ import doctor_m.tardis.door.TardisDoorManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.phys.Vec3;
 
 /**
  * 飞行状态机。
@@ -80,14 +79,23 @@ public final class TardisFlight {
         if (!data.exteriorDim().equals(data.targetDim())) return;
 
         BlockPos current = data.exteriorPos();
-        Vec3 from = Vec3.atCenterOf(current);
-        Vec3 to = Vec3.atCenterOf(data.targetPos());
-        Vec3 delta = to.subtract(from);
-        double distance = delta.length();
+        BlockPos target = data.targetPos();
+
+        double fromX = current.getX() + 0.5;
+        double fromY = current.getY() + 0.5;
+        double fromZ = current.getZ() + 0.5;
+        double dx = (target.getX() + 0.5) - fromX;
+        double dy = (target.getY() + 0.5) - fromY;
+        double dz = (target.getZ() + 0.5) - fromZ;
+        double distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
         if (distance < 1e-4) return;
 
-        Vec3 step = (distance <= speed) ? delta : delta.normalize().scale(speed);
-        BlockPos nextPos = BlockPos.containing(from.add(step));
+        // 一步走到位，或按航速朝目标走。用标量算，避免每 tick 给每台飞行中的
+        // TARDIS 分配一串 Vec3。
+        double scale = (distance <= speed) ? 1.0 : speed / distance;
+
+        BlockPos nextPos = BlockPos.containing(
+                fromX + dx * scale, fromY + dy * scale, fromZ + dz * scale);
 
         if (!nextPos.equals(current)) {
             data.setExterior(data.exteriorDim(), nextPos, data.exteriorFacing());

@@ -1,8 +1,5 @@
 package doctor_m.tardis.console.control;
 
-import doctor_m.tardis.console.TardisConsoleRegistry;
-import doctor_m.tardis.console.TardisConsoleAppearance;
-import doctor_m.tardis.console.ConsoleBoneMatcher;
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.data.TardisData;
@@ -81,10 +78,9 @@ public final class ConsoleControlHandler {
         TardisData data = TardisManager.get(server, tardisId);
         if (data == null) return;
 
-        // 3. 控件配置
-        TardisConsoleAppearance app = TardisConsoleRegistry.get(be.getAppearanceId());
-        if (app == null) return;
-        ControlConfig config = ConsoleBoneMatcher.resolve(entity.getBoneName(), app);
+        // 3. 控件配置：来自客户端随 AABB 上报的同步字段。
+        //    专用服务器没有客户端资源包，不能再依赖 TardisConsoleRegistry。
+        ControlConfig config = entity.config();
         if (config == null) return;
 
         // 4. 行为（类型与行为绑定在同一个 ControlType 上）

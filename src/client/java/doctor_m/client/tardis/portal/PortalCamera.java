@@ -18,6 +18,9 @@ public class PortalCamera {
 
         Vec3 rel = playerPos.subtract(localCenter);
         float deltaYaw = localFacing.toYRot() - remoteFacing.getOpposite().toYRot();
+        if (localFacing.getAxis() == Direction.Axis.X) {
+            deltaYaw += localFacing.getStepX() * 180f;
+        }
 
         double rad = Math.toRadians(deltaYaw);
         double cos = Math.cos(rad);

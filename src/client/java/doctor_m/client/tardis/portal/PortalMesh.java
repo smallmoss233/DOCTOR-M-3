@@ -1,6 +1,7 @@
 package doctor_m.client.tardis.portal;
 
 import net.minecraft.world.phys.AABB;
+
 import java.util.List;
 
 /** 缓存网格：一组 quad + 粗包围盒（用于快速视锥剔除）。 */
@@ -16,16 +17,27 @@ public final class PortalMesh {
 
     private static AABB computeBounds(List<PortalQuad> quads) {
         if (quads.isEmpty()) return new AABB(0, 0, 0, 0, 0, 0);
-        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
-        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+        // b = {minX, minY, minZ, maxX, maxY, maxZ}
+        double[] b = {
+                Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE,
+                -Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE
+        };
         for (PortalQuad q : quads) {
-            for (PortalVertex v : q.vertices()) {
-                minX = Math.min(minX, v.x()); maxX = Math.max(maxX, v.x());
-                minY = Math.min(minY, v.y()); maxY = Math.max(maxY, v.y());
-                minZ = Math.min(minZ, v.z()); maxZ = Math.max(maxZ, v.z());
-            }
+            include(b, q.a());
+            include(b, q.b());
+            include(b, q.c());
+            include(b, q.d());
         }
-        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+        return new AABB(b[0], b[1], b[2], b[3], b[4], b[5]);
+    }
+
+    private static void include(double[] b, PortalVertex v) {
+        if (v.x() < b[0]) b[0] = v.x();
+        if (v.y() < b[1]) b[1] = v.y();
+        if (v.z() < b[2]) b[2] = v.z();
+        if (v.x() > b[3]) b[3] = v.x();
+        if (v.y() > b[4]) b[4] = v.y();
+        if (v.z() > b[5]) b[5] = v.z();
     }
 
     public List<PortalQuad> quads() { return quads; }

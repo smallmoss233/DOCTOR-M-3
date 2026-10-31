@@ -17,9 +17,16 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.entity.EntityTypeTest;
 
+import java.util.*;
+
 public final class TardisInteriorManager {
     private static final int CLEAR_FALLBACK = 64;
     private static final int SWAP_LOCK_DELAY_TICKS = 40;
+    /** 每 tick 最多清除多少个方块，避免更换内饰时单帧卡顿。 */
+    private static final int CLEAR_PER_TICK = 48;
+
+    /** 正在分批清空的内饰区域：TARDIS id -> 剩余方块位置。 */
+    private static final Map<UUID, Deque<BlockPos>> CLEAR_QUEUE = new HashMap<>();
 
     private TardisInteriorManager() {}
 
@@ -29,7 +36,7 @@ public final class TardisInteriorManager {
 
         if (data.interiorBuilt()) {
             if (data.isInteriorChanging()) {
-                performInteriorSwap(server, data, level);
+                startInteriorSwap(server, data, level);
                 return;
             }
             // (healAtStartup 已被移至 DoorManager，这里直接调用即可)
@@ -80,10 +87,15 @@ public final class TardisInteriorManager {
         data.setInteriorSwapDelay(data.interiorSwapDelay() - 1);
         if (data.interiorSwapDelay() > 0) return;
 
-        performInteriorSwap(server, data, level);
+        // 分批清空旧内饰：不再单帧一次性 setBlock 整片区域
+        startInteriorSwap(server, data, level);
     }
 
-    private static void performInteriorSwap(MinecraftServer server, TardisData data, ServerLevel level) {
+    /**
+     * 启动内饰更换：把旧区域内非空气方块排进清空队列，逐 tick 批处理，
+     * 队列空了再继续后续步骤（见 {@link #finishInteriorSwap}）。
+     */
+    private static void startInteriorSwap(MinecraftServer server, TardisData data, ServerLevel level) {
         Identifier newId = data.pendingInteriorId();
         if (newId == null) return;
 
@@ -95,13 +107,71 @@ public final class TardisInteriorManager {
             max = region[1];
         }
 
-        clearRegion(level, min, max);
+        Deque<BlockPos> queue = CLEAR_QUEUE.computeIfAbsent(data.id(), k -> new ArrayDeque<>());
+        for (BlockPos p : BlockPos.betweenClosed(min, max)) {
+            if (!level.getBlockState(p).isAir()) {
+                queue.addLast(p);
+            }
+        }
+
+        // 先落定“正在更换”状态，避免被当成已完成的内饰继续用
+        data.setInteriorBuilt(false);
+        TardisManager.getRegistry(server).put(data);
+
+        if (queue.isEmpty()) {
+            finishInteriorSwap(server, data, level);
+        }
+    }
+
+    /** 每 tick 处理清空队列：每个 TARDIS 最多清 CLEAR_PER_TICK 个方块。 */
+    public static void tickClearInterior(MinecraftServer server) {
+        if (CLEAR_QUEUE.isEmpty()) return;
+
+        for (var entry : new ArrayList<>(CLEAR_QUEUE.entrySet())) {
+            UUID tardisId = entry.getKey();
+            Deque<BlockPos> queue = entry.getValue();
+            if (queue == null || queue.isEmpty()) {
+                CLEAR_QUEUE.remove(tardisId);
+                continue;
+            }
+
+            TardisData data = TardisManager.get(server, tardisId);
+            if (data == null) {
+                queue.clear();
+                CLEAR_QUEUE.remove(tardisId);
+                continue;
+            }
+
+            ServerLevel level = TardisManager.getInteriorLevel(server, data);
+            if (level == null) {
+                // 维度还没加载，稍后再试
+                continue;
+            }
+
+            int budget = CLEAR_PER_TICK;
+            while (budget-- > 0 && !queue.isEmpty()) {
+                BlockPos p = queue.pollFirst();
+                if (p == null) continue;
+                if (!level.getBlockState(p).isAir()) {
+                    level.setBlock(p, Blocks.AIR.defaultBlockState(),
+                            Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+                }
+            }
+
+            if (queue.isEmpty()) {
+                CLEAR_QUEUE.remove(tardisId);
+                finishInteriorSwap(server, data, level);
+            }
+        }
+    }
+
+    private static void finishInteriorSwap(MinecraftServer server, TardisData data, ServerLevel level) {
         discardControlEntities(level);
         data.clearSpareDoors();
 
+        Identifier newId = data.pendingInteriorId();
         data.setInteriorId(newId);
         data.endInteriorChange();
-        data.setInteriorBuilt(false);
         TardisManager.getRegistry(server).put(data);
 
         TardisInteriorLoader.build(server, level, data);

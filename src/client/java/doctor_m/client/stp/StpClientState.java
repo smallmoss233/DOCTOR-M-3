@@ -220,6 +220,20 @@ public final class StpClientState {
     private static final java.util.concurrent.ConcurrentLinkedQueue<PendingChunk> PENDING =
             new java.util.concurrent.ConcurrentLinkedQueue<>();
 
+    /**
+     * 已写入预构建 level 的区块版本号。
+     *
+     * <p>预构建 level 是"边收边写"的：一次维度切换会分很多帧灌入区块。门户网格
+     * 缓存必须知道内容变过，否则会在前几帧烘焙出一张残缺的网格并一直沿用。
+     * 每写入一个区块自增一次，渲染端按版本号决定是否重烘焙。
+     */
+    private static volatile int chunkRevision;
+
+    /** 当前预构建 level 的区块版本号（单调递增）。 */
+    public static int chunkRevision() {
+        return chunkRevision;
+    }
+
     /** 由网络线程调用：解码区块包并放进待写入队列。 */
     public static void onChunkData(StpPackets.StpChunkS2C payload) {
         Prepared target = prepared;
@@ -306,6 +320,7 @@ public final class StpClientState {
                         chunk.x(), chunk.z(), t.toString());
             }
             applied++;
+            chunkRevision++;
         }
 
         if (applied > 0) {

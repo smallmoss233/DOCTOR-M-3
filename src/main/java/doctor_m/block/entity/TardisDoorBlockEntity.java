@@ -139,8 +139,6 @@ public class TardisDoorBlockEntity extends BlockEntity {
 
     /**
      * 服务端每 tick 调用一次：推进同一份倒计时。
-     *
-     * <p><b>为什么服务端也要走这个倒计时</b>：过渡状态会随 {@link #getUpdateTag()}
      * 同步给客户端。若服务端不推进，{@code fadeTicks} 会永远停在
      * {@link #FADE_DURATION}，之后任何一次同步（右键开关门、外观切换……）都会把
      * 这份「开场淡入」重发给客户端 —— 表现就是每次开关门都重播一遍显形动画。

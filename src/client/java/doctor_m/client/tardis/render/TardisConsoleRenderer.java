@@ -15,14 +15,13 @@ import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider;
 import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
-import net.minecraft.core.BlockPos;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 /**
  * 控制台渲染器。
@@ -38,9 +37,20 @@ import java.util.Map;
 public class TardisConsoleRenderer
         implements BlockEntityRenderer<TardisConsoleBlockEntity, TardisConsoleRenderState> {
 
-    /** 每个控制台的"首次可见"时间戳（纳秒）。用于 idle 动画的起始点。 */
-    private static final Map<BlockPos, Long> IDLE_START_NS = new HashMap<>();
-    private static final Map<BlockPos, Long> LAST_SEEN_MS = new HashMap<>();
+    /**
+     * 每个控制台的 idle 动画起点与最后可见时间。
+     *
+     * <p>键用 BE 弱引用：方块实体卸载回收时条目随之消失，不会像旧的
+     * BlockPos 键那样无限增长；顺带修掉"不同维度同坐标控制台共用 idle 相位"。
+     */
+    private static final Map<TardisConsoleBlockEntity, IdleState> IDLE_STATES = new WeakHashMap<>();
+    private static long lastSweepMs;
+    private static final long STATE_TTL_MS = 10_000L;
+
+    private static final class IdleState {
+        long startNs;
+        long lastSeenMs;
+    }
 
     public TardisConsoleRenderer(BlockEntityRendererProvider.Context ctx) {}
 
@@ -63,26 +73,24 @@ public class TardisConsoleRenderer
             state.facing = s.getValue(TardisConsoleBlock.FACING);
         }
 
-        BlockPos pos = be.getBlockPos();
         long nowNs = System.nanoTime();
         long nowMs = Util.getMillis();
 
-        IDLE_START_NS.putIfAbsent(pos, nowNs);
-        LAST_SEEN_MS.put(pos, nowMs);
+        IdleState idle = IDLE_STATES.get(be);
+        if (idle == null) {
+            idle = new IdleState();
+            idle.startNs = nowNs;
+            IDLE_STATES.put(be, idle);
+        }
+        idle.lastSeenMs = nowMs;
 
-        // 惰性清理
-        if ((nowMs & 0x1FFL) == 0L) {
-            LAST_SEEN_MS.entrySet().removeIf(e -> {
-                if (nowMs - e.getValue() > 10_000L) {
-                    IDLE_START_NS.remove(e.getKey());
-                    return true;
-                }
-                return false;
-            });
+        // 惰性清理：距上次清理满 10 秒才扫一遍
+        if (nowMs - lastSweepMs >= STATE_TTL_MS) {
+            lastSweepMs = nowMs;
+            IDLE_STATES.entrySet().removeIf(e -> nowMs - e.getValue().lastSeenMs > STATE_TTL_MS);
         }
 
-        long startNs = IDLE_START_NS.getOrDefault(pos, nowNs);
-        state.idleElapsedSec = (nowNs - startNs) / 1_000_000_000f;
+        state.idleElapsedSec = (nowNs - idle.startNs) / 1_000_000_000f;
 
         // ---- 控件动画 overrides ----
         TardisConsoleAppearance ca = TardisConsoleRegistry.get(be.getAppearanceId());

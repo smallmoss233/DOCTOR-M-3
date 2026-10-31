@@ -16,20 +16,22 @@ import java.util.Set;
  * 控件实体的对账（reconcile）：把"服务端现有实体"对齐到"客户端算出的控件列表"。
  *
  * <h2>为什么要对账而不是重建</h2>
- * 客户端每次朝向 / 外观变化都会重发一份 AABB 列表。如果每次都全删重建，
+ * 客户端每次朝向 / 外观变化都会重发一份控件列表。如果每次都全删重建，
  * 实体会被反复 discard + spawn，客户端动画状态（挡位对位、播放进度）会丢失，
  * 表现为"转个方向控件就跳回 0 档"。
  *
- * <p>所以按<b>骨骼名</b>把旧实体从池里"认领"回来，只更新 AABB：
+ * <p>所以按<b>骨骼名</b>把旧实体从池里"认领"回来，只更新 AABB 与配置：
  * <ul>
- *   <li>池里找到同名 → 复用，仅刷新碰撞箱</li>
+ *   <li>池里找到同名 → 复用，刷新碰撞箱与控件配置</li>
  *   <li>池里没有 → 新建</li>
  *   <li>最后池里剩下的 → 说明该控件已不存在，discard</li>
  * </ul>
  *
- * <h2>为什么 AABB 来自客户端</h2>
+ * <h2>为什么 AABB 与配置都来自客户端</h2>
  * 几何数据（{@code .geo.json}）只在客户端资源包里，服务端拿不到，
  * 因此控件位置的唯一可靠来源是客户端（见 {@code TardisConsoleBlockEntity} 类文档）。
+ * 控件配置（挡位数 / 时长 / 动画片段）同理，而且专用服务器上外观注册表本来就是空的，
+ * 让服务端自己去解析反而会两边不一致。
  */
 public final class ConsoleControlSync {
 
@@ -40,16 +42,13 @@ public final class ConsoleControlSync {
      *
      * @param level      服务端世界
      * @param consolePos 控制台方块位置
-     * @param appearance 控制台外观（用于解析未在池中的骨骼的控件配置）
      * @param tracked    服务端当前登记的实体列表；<b>会被原地改写</b>
      * @param entries    客户端发来的控件列表
      */
     public static void reconcile(ServerLevel level,
                                  BlockPos consolePos,
-                                 TardisConsoleAppearance appearance,
                                  List<ConsoleControlEntity> tracked,
                                  List<SyncConsoleControlsPayload.Entry> entries) {
-        if (appearance == null) return;
 
         // ---- 1. 收集现有实体（用 Set，同名不互相覆盖） ----
         Set<ConsoleControlEntity> pool = new LinkedHashSet<>();
@@ -66,6 +65,8 @@ public final class ConsoleControlSync {
         // ---- 2. 按客户端列表消费 pool ----
         for (SyncConsoleControlsPayload.Entry e : entries) {
             String boneName = e.boneName();
+            ControlConfig config = e.toConfig();
+            if (config == null) continue;   // 未注册的控件类型
 
             // 从 pool 里找第一个同名骨骼（消耗掉它）
             ConsoleControlEntity entity = null;
@@ -80,14 +81,11 @@ public final class ConsoleControlSync {
             }
 
             if (entity == null) {
-                // 新控件：需要能解析出配置才生成
-                ControlConfig config = ConsoleBoneMatcher.resolve(boneName, appearance);
-                if (config == null) continue;
-
                 ConsoleControlLayout.ControlBounds bounds =
                         new ConsoleControlLayout.ControlBounds(boneName, config, e.box());
                 entity = ConsoleControlEntity.spawn(level, consolePos, bounds, 0);
             } else {
+                entity.applyConfig(config);
                 entity.applyBounds(e.box());
             }
             tracked.add(entity);

@@ -150,6 +150,20 @@ public final class StpManager {
      */
     public static void sendChunk(MinecraftServer server, ServerPlayer player,
                                  ServerLevel level, ChunkPos pos) {
+        byte[] data = encodeChunk(server, level, pos);
+        if (data == null) return;
+        ServerPlayNetworking.send(player, new StpPackets.StpChunkS2C(
+                level.dimension().identifier(), pos.x(), pos.z(), data));
+    }
+
+    /**
+     * 把单个区块序列化成字节数组，供 {@link #sendChunk} 和滴灌泵复用。
+     *
+     * <p>把编码和发送拆开，滴灌泵就可以一次编码、按需发送，避免每次都
+     * 构造 {@link ClientboundLevelChunkWithLightPacket} 再序列化；错误时返回
+     * {@code null}，调用方跳过该区块而不是吞异常。
+     */
+    public static byte[] encodeChunk(MinecraftServer server, ServerLevel level, ChunkPos pos) {
         try {
             LevelChunk chunk = level.getChunk(pos.x(), pos.z());
 
@@ -164,15 +178,13 @@ public final class StpManager {
                     Unpooled.buffer(), server.registryAccess());
             try {
                 ClientboundLevelChunkWithLightPacket.STREAM_CODEC.encode(buf, pkt);
-                byte[] data = ByteBufUtil.getBytes(buf);
-
-                ServerPlayNetworking.send(player, new StpPackets.StpChunkS2C(
-                        level.dimension().identifier(), pos.x(), pos.z(), data));
+                return ByteBufUtil.getBytes(buf);
             } finally {
                 buf.release();
             }
         } catch (Throwable t) {
-            StpConfig.warn("sendChunk {}/{} failed: {}", pos.x(), pos.z(), t.toString());
+            StpConfig.warn("encodeChunk {}/{} failed: {}", pos.x(), pos.z(), t.toString());
+            return null;
         }
     }
 }

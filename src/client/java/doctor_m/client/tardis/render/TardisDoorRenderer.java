@@ -3,7 +3,7 @@ package doctor_m.client.tardis.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
-import doctor_m.client.tardis.portal.PortalViewManager; // ★ 引入
+import doctor_m.client.tardis.portal.PortalViewManager;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
@@ -16,22 +16,38 @@ import net.minecraft.client.renderer.feature.ModelFeatureRenderer;
 import net.minecraft.client.renderer.rendertype.RenderType;
 import net.minecraft.client.renderer.rendertype.RenderTypes;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 public class TardisDoorRenderer
         implements BlockEntityRenderer<TardisDoorBlockEntity, TardisDoorRenderState> {
 
     private static final Direction MODEL_FACING = Direction.NORTH;
-    private static final Map<BlockPos, AnimState> ANIM_STATES = new HashMap<>();
-    private record AnimState(boolean lastOpen, long startNs, long lastSeenMs) {}
+
+    /**
+     * 每扇门的开关动画起点。
+     *
+     * <p>键用 BE 本身（弱引用）：方块实体被区块卸载回收时条目自动消失，
+     * 也不会出现"不同维度的门恰好同坐标 → 共用一份动画状态"的串台。
+     * 旧版用 BlockPos 作键 + {@code (nowMs & 0x1FF) == 0} 这个几乎命中不了的
+     * 清理条件，地图只增不减。
+     */
+    private static final Map<TardisDoorBlockEntity, AnimState> ANIM_STATES = new WeakHashMap<>();
+    /** 上次清理时间（毫秒）。 */
+    private static long lastSweepMs;
+    private static final long STATE_TTL_MS = 10_000L;
+
+    private static final class AnimState {
+        boolean lastOpen;
+        long startNs;
+        long lastSeenMs;
+    }
 
     public TardisDoorRenderer(BlockEntityRendererProvider.Context ctx) {}
 
@@ -64,7 +80,6 @@ public class TardisDoorRenderer
                             == net.minecraft.world.level.block.state.properties.DoubleBlockHalf.LOWER;
         }
 
-        BlockPos pos = be.getBlockPos();
         boolean isOpen = be.isOpen();
 
         // ★ 将此门注册到 PortalViewManager 中，方便离屏渲染获取
@@ -75,15 +90,24 @@ public class TardisDoorRenderer
         long nowNs = System.nanoTime();
         long nowMs = Util.getMillis();
 
-        AnimState prev = ANIM_STATES.get(pos);
-        long startNs = (prev == null || prev.lastOpen() != isOpen) ? nowNs : prev.startNs();
-        ANIM_STATES.put(pos, new AnimState(isOpen, startNs, nowMs));
+        AnimState anim = ANIM_STATES.get(be);
+        if (anim == null) {
+            anim = new AnimState();
+            anim.startNs = nowNs;
+            ANIM_STATES.put(be, anim);
+        } else if (anim.lastOpen != isOpen) {
+            anim.startNs = nowNs;
+        }
+        anim.lastOpen = isOpen;
+        anim.lastSeenMs = nowMs;
 
-        if ((nowMs & 0x1FFL) == 0L) {
-            ANIM_STATES.entrySet().removeIf(e -> nowMs - e.getValue().lastSeenMs() > 10_000L);
+        // 按"距上次清理是否满 10 秒"触发，读起来就是它想表达的意思。
+        if (nowMs - lastSweepMs >= STATE_TTL_MS) {
+            lastSweepMs = nowMs;
+            ANIM_STATES.entrySet().removeIf(e -> nowMs - e.getValue().lastSeenMs > STATE_TTL_MS);
         }
 
-        state.animElapsedSec = (nowNs - startNs) / 1_000_000_000f;
+        state.animElapsedSec = (nowNs - anim.startNs) / 1_000_000_000f;
         state.animTarget = isOpen;
     }
 

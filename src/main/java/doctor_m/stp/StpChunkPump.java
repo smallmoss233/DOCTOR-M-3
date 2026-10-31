@@ -1,5 +1,6 @@
 package doctor_m.stp;
 
+import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -116,7 +117,12 @@ public final class StpChunkPump {
 
             int sent = 0;
             while (sent < budget && !queue.isEmpty()) {
-                StpManager.sendChunk(server, player, level, queue.pollFirst());
+                ChunkPos pos = queue.pollFirst();
+                byte[] payload = StpManager.encodeChunk(server, level, pos);
+                if (payload != null) {
+                    ServerPlayNetworking.send(player, new StpPackets.StpChunkS2C(
+                            level.dimension().identifier(), pos.x(), pos.z(), payload));
+                }
                 sent++;
             }
 

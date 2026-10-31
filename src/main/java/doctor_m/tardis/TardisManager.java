@@ -22,6 +22,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.entity.EntityTypeTest;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,10 +42,16 @@ public final class TardisManager {
     }
 
     public static TardisData findByExterior(MinecraftServer server, ResourceKey<Level> dim, BlockPos pos) {
+        // 每次右键 / 穿门都会走这里。用坐标比较而不是 pos.equals(base.above())：
+        // 后者会给每个候选 TARDIS 都分配一个 BlockPos。
+        int px = pos.getX();
+        int py = pos.getY();
+        int pz = pos.getZ();
         for (TardisData d : getRegistry(server).all()) {
             if (!dim.equals(d.exteriorDim())) continue;
             BlockPos base = d.exteriorPos();
-            if (pos.equals(base) || pos.equals(base.above())) return d;
+            if (base.getX() != px || base.getZ() != pz) continue;
+            if (base.getY() == py || base.getY() + 1 == py) return d;
         }
         return null;
     }
@@ -87,7 +94,10 @@ public final class TardisManager {
         for (TardisData d : getRegistry(server).all()) {
             if (!player.level().dimension().equals(d.exteriorDim())) continue;
             BlockPos dp = d.exteriorPos();
-            double distSq = Math.pow(px - (dp.getX() + 0.5), 2) + Math.pow(py - (dp.getY() + 0.5), 2) + Math.pow(pz - (dp.getZ() + 0.5), 2);
+            double dx = px - (dp.getX() + 0.5);
+            double dy = py - (dp.getY() + 0.5);
+            double dz = pz - (dp.getZ() + 0.5);
+            double distSq = dx * dx + dy * dy + dz * dz;
             if (distSq < bestDistSq) {
                 bestDistSq = distSq;
                 nearest = d;
@@ -190,12 +200,24 @@ public final class TardisManager {
     }
 
     public static void tickAll(MinecraftServer server) {
-        for (TardisData data : List.copyOf(getRegistry(server).all())) {
+        // 绝大多数服务器上一台 TARDIS 都没有 / 全都停着。先做零分配的空表判断，
+        // 避免每个 tick 都 List.copyOf 一份注册表。
+        Collection<TardisData> registered = getRegistry(server).all();
+        if (registered.isEmpty()) return;
+
+        for (TardisData data : List.copyOf(registered)) {
             if (data.isInteriorChanging()) {
                 TardisInteriorManager.tickInteriorChange(server, data);
             }
             if (data.state() != TardisState.LANDED) {
                 TardisFlight.tick(server, data);
+            }
+
+            // 飞行中或正在更换内饰时，内饰维度不能被当作“闲置”卸载：
+            // 玩家可能暂时不在里面，但 TARDIS 本身还在运转。
+            if (data.state() != TardisState.LANDED || data.isInteriorChanging()) {
+                DynamicDimensionManager.noteIdleEnd(
+                        ResourceKey.create(Registries.DIMENSION, DimensionTemplate.dimensionIdFor(data.id())));
             }
         }
     }

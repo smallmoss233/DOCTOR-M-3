@@ -1,12 +1,9 @@
 package doctor_m.tardis.console.control;
 
-import doctor_m.tardis.console.TardisConsoleRegistry;
-import doctor_m.tardis.console.TardisConsoleAppearance;
-import doctor_m.tardis.console.ConsoleControlLayout;
-import doctor_m.tardis.console.ConsoleBoneMatcher;
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.register.DMEntityTypes;
 import doctor_m.tardis.TardisManager;
+import doctor_m.tardis.console.ConsoleControlLayout;
 import doctor_m.tardis.data.TardisData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
@@ -72,6 +69,14 @@ public class ConsoleControlEntity extends Entity {
             SynchedEntityData.defineId(ConsoleControlEntity.class, EntityDataSerializers.INT);
     private static final EntityDataAccessor<Float> DATA_TARGET_TIME =
             SynchedEntityData.defineId(ConsoleControlEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Integer> DATA_TIERS =
+            SynchedEntityData.defineId(ConsoleControlEntity.class, EntityDataSerializers.INT);
+    private static final EntityDataAccessor<Float> DATA_DURATION =
+            SynchedEntityData.defineId(ConsoleControlEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<String> DATA_TIER_MODE =
+            SynchedEntityData.defineId(ConsoleControlEntity.class, EntityDataSerializers.STRING);
+    private static final EntityDataAccessor<String> DATA_ANIMATION =
+            SynchedEntityData.defineId(ConsoleControlEntity.class, EntityDataSerializers.STRING);
 
     /** 碰撞箱三轴尺寸（格）。客户端读它来重建 AABB。 */
     private static final EntityDataAccessor<Float> DATA_SIZE_X =
@@ -105,12 +110,26 @@ public class ConsoleControlEntity extends Entity {
         ConsoleControlEntity e = new ConsoleControlEntity(DMEntityTypes.CONSOLE_CONTROL, level);
         e.setConsolePos(consolePos);
         e.setBoneName(bounds.boneName());
-        e.setControlTypeId(bounds.config().type().id());
+        e.applyConfig(bounds.config());
         e.setTier(initialTier);
         e.setTargetTime(bounds.config().timeForTier(initialTier));
         e.applyBounds(bounds.worldBox());
         level.addFreshEntity(e);
         return e;
+    }
+
+    /**
+     * 应用控件配置（类型 / 挡位 / 时长 / 到顶行为 / 动画片段）。
+     *
+     * <p>配置由客户端随 AABB 一起发来（服务端没有客户端资源包），所以这里
+     * 是服务端唯一的配置来源；NBT 只作为读档时的兜底。
+     */
+    public void applyConfig(ControlConfig config) {
+        if (config == null) return;
+        setControlTypeId(config.type().id());
+        setControlConfig(config.tiers(), config.duration(),
+                config.tierMode().name(), config.animationId());
+        setTargetTime(config.timeForTier(getTier()));
     }
 
     // =========================================================
@@ -213,7 +232,8 @@ public class ConsoleControlEntity extends Entity {
      */
     public void applyTier(int tier) {
         setTier(tier);
-        setTargetTime(resolveTimeForTier(tier));
+        ControlConfig config = config();
+        setTargetTime(config == null ? 0f : config.timeForTier(tier));
     }
 
     /**
@@ -237,22 +257,32 @@ public class ConsoleControlEntity extends Entity {
         UUID tardisId = be.getTardisId();
         if (tardisId == null) return;
         TardisData data = TardisManager.get(server, tardisId);
-        ControlType type = controlType();
-        if (data == null || type == null) return;
+        ControlConfig config = config();
+        if (data == null || config == null) return;
 
-        applyTier(data.tier(type.id()));
+        applyTier(data.tier(config.type().id()));
     }
 
-    /** 查自身外观配置，算出某档位对应的动画时间点；无法解析时 0（回静止位）。 */
-    private float resolveTimeForTier(int tier) {
-        BlockPos cp = getConsolePos();
-        if (cp == null || !(level() instanceof ServerLevel sl)) return 0f;
-        if (!(sl.getBlockEntity(cp) instanceof TardisConsoleBlockEntity be)) return 0f;
+    /**
+     * 由同步字段还原控件配置。
+     *
+     * <p>这是服务端唯一的配置来源：客户端在发 AABB 时把配置一起带过来了，
+     * 因此专用服务器（没有客户端资源包）也能正确处理点击与动画对位。
+     */
+    public @Nullable ControlConfig config() {
+        ControlType type = controlType();
+        if (type == null) return null;
 
-        TardisConsoleAppearance app = TardisConsoleRegistry.get(be.getAppearanceId());
-        if (app == null) return 0f;
-        ControlConfig config = ConsoleBoneMatcher.resolve(getBoneName(), app);
-        return config == null ? 0f : config.timeForTier(tier);
+        TierMode mode;
+        try {
+            mode = TierMode.valueOf(getTierModeName());
+        } catch (IllegalArgumentException | NullPointerException e) {
+            mode = type.defaultTierMode();
+        }
+
+        String animation = getAnimationId();
+        return new ControlConfig(type, getTiers(), getDuration(), mode,
+                animation == null || animation.isEmpty() ? null : animation);
     }
 
     // =========================================================
@@ -339,6 +369,10 @@ public class ConsoleControlEntity extends Entity {
         builder.define(DATA_BONE_NAME, "");
         builder.define(DATA_TIER, 0);
         builder.define(DATA_TARGET_TIME, 0f);
+        builder.define(DATA_TIERS, 1);
+        builder.define(DATA_DURATION, 0.2f);
+        builder.define(DATA_TIER_MODE, TierMode.CLAMP.name());
+        builder.define(DATA_ANIMATION, "");
         builder.define(DATA_SIZE_X, 0.1f);
         builder.define(DATA_SIZE_Y, 0.1f);
         builder.define(DATA_SIZE_Z, 0.1f);
@@ -356,6 +390,19 @@ public class ConsoleControlEntity extends Entity {
 
     public float getTargetTime()      { return this.entityData.get(DATA_TARGET_TIME); }
     public void setTargetTime(float t){ this.entityData.set(DATA_TARGET_TIME, t); }
+
+    public int getTiers()             { return this.entityData.get(DATA_TIERS); }
+    public float getDuration()        { return this.entityData.get(DATA_DURATION); }
+    public String getTierModeName()   { return this.entityData.get(DATA_TIER_MODE); }
+    public String getAnimationId()    { return this.entityData.get(DATA_ANIMATION); }
+
+    /** 一次性写入控件配置字段；避免逐字段 set 造成多次同步广播。 */
+    public void setControlConfig(int tiers, float duration, String tierMode, @Nullable String animationId) {
+        this.entityData.set(DATA_TIERS, Math.max(1, tiers));
+        this.entityData.set(DATA_DURATION, duration <= 0f ? 0.01f : duration);
+        this.entityData.set(DATA_TIER_MODE, tierMode == null ? TierMode.CLAMP.name() : tierMode);
+        this.entityData.set(DATA_ANIMATION, animationId == null ? "" : animationId);
+    }
 
     /**
      * 所属控制台位置。未设置返回 null（而不是 BlockPos.ZERO）——
@@ -382,6 +429,10 @@ public class ConsoleControlEntity extends Entity {
         output.putString("bone_name", getBoneName());
         output.putInt("tier", getTier());
         output.putFloat("target_time", getTargetTime());
+        output.putInt("tiers", getTiers());
+        output.putFloat("duration", getDuration());
+        output.putString("tier_mode", getTierModeName());
+        output.putString("animation", getAnimationId());
         output.putFloat("size_x", this.entityData.get(DATA_SIZE_X));
         output.putFloat("size_y", this.entityData.get(DATA_SIZE_Y));
         output.putFloat("size_z", this.entityData.get(DATA_SIZE_Z));
@@ -397,6 +448,19 @@ public class ConsoleControlEntity extends Entity {
         setBoneName(input.getStringOr("bone_name", ""));
         setTier(input.getIntOr("tier", 0));
         setTargetTime(input.getFloatOr("target_time", 0f));
+
+        // 旧存档没有这些字段：按控件类型的默认值补齐，下一次客户端上报会覆盖成准确值。
+        ControlType type = controlType();
+        int tiers = input.getIntOr("tiers", -1);
+        if (tiers < 1) tiers = type == null ? 1 : type.defaultTiers();
+        float duration = input.getFloatOr("duration", -1f);
+        if (duration <= 0f) duration = type == null ? 0.2f : type.defaultDuration();
+        String tierMode = input.getStringOr("tier_mode", "");
+        if (tierMode.isBlank()) {
+            tierMode = type == null ? TierMode.CLAMP.name() : type.defaultTierMode().name();
+        }
+        setControlConfig(tiers, duration, tierMode, input.getStringOr("animation", ""));
+
         this.entityData.set(DATA_SIZE_X, input.getFloatOr("size_x", 0.1f));
         this.entityData.set(DATA_SIZE_Y, input.getFloatOr("size_y", 0.1f));
         this.entityData.set(DATA_SIZE_Z, input.getFloatOr("size_z", 0.1f));

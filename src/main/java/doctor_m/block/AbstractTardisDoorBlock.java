@@ -105,18 +105,72 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
         return Shapes.empty();
     }
 
+    // ================================================================
+    //                      形状缓存
+    // ================================================================
+    //
+    // 门板 / 底座形状只由 FACING、HALF 两个属性决定，而 getShape 与
+    // getCollisionShape 会被每个实体、每个 tick、每次射线检测反复调用。
+    // 旧实现每次都用 Shapes.or 现拼一个新 VoxelShape —— 纯开销。
+    // 方块实例是单例，缓存直接挂在实例上；并发首次访问最多算两遍，结果一致。
+
+    private static final int FACING_SLOTS = Direction.values().length;
+    private static final int HALF_SLOTS = 2;
+
+    private final VoxelShape[][] panelShapes = new VoxelShape[FACING_SLOTS][];
+    private final VoxelShape[][] fullShapes = new VoxelShape[FACING_SLOTS][];
+    private final AABB[][] panelAabbs = new AABB[FACING_SLOTS][];
+
+    /** 门板形状（缓存）。 */
+    protected final VoxelShape cachedPanelShape(Direction facing, DoubleBlockHalf half) {
+        int h = half == DoubleBlockHalf.LOWER ? 0 : 1;
+        VoxelShape[] row = panelShapes[facing.ordinal()];
+        if (row == null) {
+            row = new VoxelShape[HALF_SLOTS];
+            panelShapes[facing.ordinal()] = row;
+        }
+        VoxelShape shape = row[h];
+        if (shape == null) {
+            shape = doorPanelShape(facing, half);
+            row[h] = shape;
+        }
+        return shape;
+    }
+
+    /** 门板 + 底座（缓存）。 */
+    protected final VoxelShape cachedShape(Direction facing, DoubleBlockHalf half) {
+        int h = half == DoubleBlockHalf.LOWER ? 0 : 1;
+        VoxelShape[] row = fullShapes[facing.ordinal()];
+        if (row == null) {
+            row = new VoxelShape[HALF_SLOTS];
+            fullShapes[facing.ordinal()] = row;
+        }
+        VoxelShape shape = row[h];
+        if (shape == null) {
+            shape = Shapes.or(cachedPanelShape(facing, half), ledgeShape(facing, half));
+            row[h] = shape;
+        }
+        return shape;
+    }
+
+    /** 下半门板的 AABB 列表（缓存）：穿门判定用。 */
+    private AABB[] cachedPanelAabbs(Direction facing) {
+        AABB[] boxes = panelAabbs[facing.ordinal()];
+        if (boxes == null) {
+            boxes = cachedPanelShape(facing, DoubleBlockHalf.LOWER).toAabbs().toArray(new AABB[0]);
+            panelAabbs[facing.ordinal()] = boxes;
+        }
+        return boxes;
+    }
+
     @Override
     protected VoxelShape getShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext ctx) {
-        Direction facing = state.getValue(FACING);
-        DoubleBlockHalf half = state.getValue(HALF);
-        return Shapes.or(doorPanelShape(facing, half), ledgeShape(facing, half));
+        return cachedShape(state.getValue(FACING), state.getValue(HALF));
     }
 
     @Override
     protected VoxelShape getCollisionShape(BlockState state, BlockGetter level, BlockPos pos, CollisionContext ctx) {
-        Direction facing = state.getValue(FACING);
-        DoubleBlockHalf half = state.getValue(HALF);
-        return Shapes.or(doorPanelShape(facing, half), ledgeShape(facing, half));
+        return cachedShape(state.getValue(FACING), state.getValue(HALF));
     }
 
     @Override
@@ -204,8 +258,8 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
      * <p>判定方式：玩家 AABB 与 {@link #doorPanelShape}（下半）的实际重叠。
      */
     protected boolean hasCrossedDoorPlane(BlockState state, BlockPos pos, ServerPlayer player) {
-        VoxelShape panel = doorPanelShape(state.getValue(FACING), DoubleBlockHalf.LOWER);
-        if (panel.isEmpty()) return false;
+        AABB[] panels = cachedPanelAabbs(state.getValue(FACING));
+        if (panels.length == 0) return false;
 
         AABB entityBox = player.getBoundingBox();
         AABB localBox = new AABB(
@@ -216,7 +270,10 @@ public abstract class AbstractTardisDoorBlock extends Block implements EntityBlo
                 entityBox.maxY - pos.getY(),
                 entityBox.maxZ - pos.getZ() + 0.05);
 
-        return panel.toAabbs().stream().anyMatch(aabb -> aabb.intersects(localBox));
+        for (AABB panel : panels) {
+            if (panel.intersects(localBox)) return true;
+        }
+        return false;
     }
 
     // ================================================================

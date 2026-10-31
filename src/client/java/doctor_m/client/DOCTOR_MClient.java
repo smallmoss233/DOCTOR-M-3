@@ -23,6 +23,7 @@ public class DOCTOR_MClient implements ClientModInitializer {
         TardisAppearancePlugin.register();
         TardisConsoleLoader.register();
         BedrockCache.register();
+        doctor_m.client.tardis.portal.PortalViewManager.register();
         BedrockDebugCommand.register();
         DMClientNetwork.register();
         ConsoleControlClient.register();
@@ -43,6 +44,10 @@ public class DOCTOR_MClient implements ClientModInitializer {
         // 区块写入节流：把一次维度切换涌来的几百个区块摊到多帧上写。
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK
                 .register(client -> StpClientState.tick());
+
+        // 控件动画索引：每 tick 重建一次，避免每帧遍历全世界实体。
+        net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK
+                .register(client -> doctor_m.client.tardis.console.ConsoleAnimationController.tick(client));
 
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register(
                 (handler, client) -> StpClientState.clear());

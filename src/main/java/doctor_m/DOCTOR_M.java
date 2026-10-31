@@ -5,6 +5,7 @@ import doctor_m.network.DMNetwork;
 import doctor_m.register.*;
 import doctor_m.stp.*;
 import doctor_m.tardis.TardisManager;
+import doctor_m.tardis.interior.TardisInteriorManager;
 import mosslib.core.dimension.DynamicDimensionManager;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -41,7 +42,11 @@ public class DOCTOR_M implements ModInitializer {
 
         // 生命周期
         ServerLifecycleEvents.SERVER_STARTED.register(server -> DynamicDimensionManager.loadAll(server));
+        // 先跑闲置维度清理，再跑 TARDIS 飞行，避免正在飞行的空载内饰被误卸载
+        ServerTickEvents.END_SERVER_TICK.register(DynamicDimensionManager::tick);
         ServerTickEvents.END_SERVER_TICK.register(TardisManager::tickAll);
+        // 内饰更换的分批清空：tickAll 会把旧区域排进队列，这里逐 tick 清掉
+        ServerTickEvents.END_SERVER_TICK.register(TardisInteriorManager::tickClearInterior);
 
         // 命令
         CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) ->

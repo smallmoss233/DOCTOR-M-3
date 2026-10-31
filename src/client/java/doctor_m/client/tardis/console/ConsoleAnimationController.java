@@ -2,9 +2,9 @@ package doctor_m.client.tardis.console;
 
 import doctor_m.block.entity.TardisConsoleBlockEntity;
 import doctor_m.tardis.console.ConsoleBoneMatcher;
+import doctor_m.tardis.console.TardisConsoleAppearance;
 import doctor_m.tardis.console.control.ConsoleControlEntity;
 import doctor_m.tardis.console.control.ControlConfig;
-import doctor_m.tardis.console.TardisConsoleAppearance;
 import mosslib.core.bedrock.BedrockAnimationModel;
 import mosslib.core.render.BedrockModelRenderer;
 import net.minecraft.client.Minecraft;
@@ -12,9 +12,7 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 
-import java.util.HashMap;
-import java.util.Map;
-import java.util.WeakHashMap;
+import java.util.*;
 
 /**
  * 控制台控件的客户端动画控制器。
@@ -35,6 +33,12 @@ import java.util.WeakHashMap;
  *   <li>渲染器可能每个 BE 调一次 {@link #buildOverrides}，多调无害（每次差分小）</li>
  *   <li>游戏暂停时不会继续推进（如果暂停也调的话会被 deltaSeconds 上限钳住）</li>
  * </ul>
+ *
+ * <h2>控件索引（新增）</h2>
+ * 旧版每帧、每个控制台都遍历 {@code level.entitiesForRendering()}（全世界实体），
+ * 然后按 {@code getConsolePos()} 过滤：控制台或控件多时是 {@code O(控制台 × 实体)}。
+ * 现在每 tick 只重建一次 {@link #INDEX}（控制台位置 → 所属控件列表），
+ * 所有控制台共用一次遍历，渲染时直接按位置查引。
  */
 public final class ConsoleAnimationController {
 
@@ -55,6 +59,42 @@ public final class ConsoleAnimationController {
 
     /** 单帧最大推进量（秒）。防止卡顿后动画跳跃。 */
     private static final float MAX_STEP_SECONDS = 0.1f;
+
+    // =========================================================
+    //                      控件索引（控制台位置 → 控件列表）
+    // =========================================================
+
+    /** 控制台方块位置 → 该控制台下的控件实体列表。 */
+    private static Map<BlockPos, List<ConsoleControlEntity>> INDEX = Map.of();
+
+    /**
+     * 每 tick 调用一次：重建控件索引。
+     *
+     * <p>控件实体是 noPhysics、位置固定的，一个 tick 内不会移动，
+     * 所以每 tick 重建一次、整帧复用是安全的。渲染时所有控制台共用
+     * 这一份索引，不再逐台遍历全世界实体。
+     */
+    public static void tick(Minecraft mc) {
+        ClientLevel level = mc.level;
+        if (level == null) {
+            INDEX = Map.of();
+            return;
+        }
+
+        Map<BlockPos, List<ConsoleControlEntity>> map = new HashMap<>();
+        for (Entity e : level.entitiesForRendering()) {
+            if (!(e instanceof ConsoleControlEntity c)) continue;
+            BlockPos pos = c.getConsolePos();
+            if (pos == null) continue;
+            map.computeIfAbsent(pos, k -> new ArrayList<>()).add(c);
+        }
+        INDEX = Map.copyOf(map);
+    }
+
+    /** 清空索引（资源重载 / 断线时调用）。 */
+    public static void clearIndex() {
+        INDEX = Map.of();
+    }
 
     // =========================================================
     //                      idle 时间
@@ -115,8 +155,7 @@ public final class ConsoleAnimationController {
     /**
      * 为某个控制台组装骨骼覆盖表。
      *
-     * <p>遍历附近所有 {@link ConsoleControlEntity}，筛出属于这个 BE 的，
-     * 逐个查它们的动画片段 + 当前时间。
+     * <p>直接查 {@link #INDEX} 里属于该控制台的控件，不再遍历全世界实体。
      *
      * @param console 控制台 BE
      * @param clips   该外观的动画片段表（{@code animationId → Animation}），
@@ -136,15 +175,11 @@ public final class ConsoleAnimationController {
             return out;
         }
 
-        ClientLevel level = Minecraft.getInstance().level;
-        if (level == null) return out;
-
         BlockPos pos = console.getBlockPos();
+        List<ConsoleControlEntity> controls = INDEX.get(pos);
+        if (controls == null) return out;
 
-        for (Entity e : level.entitiesForRendering()) {
-            if (!(e instanceof ConsoleControlEntity c)) continue;
-            if (!pos.equals(c.getConsolePos())) continue;
-
+        for (ConsoleControlEntity c : controls) {
             ControlConfig config = ConsoleBoneMatcher.resolve(c.getBoneName(), app);
             if (config == null) continue;
 

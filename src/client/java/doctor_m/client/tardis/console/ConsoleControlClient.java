@@ -53,7 +53,13 @@ public final class ConsoleControlClient {
 
         List<SyncConsoleControlsPayload.Entry> entries = new ArrayList<>(bounds.size());
         for (ConsoleControlLayout.ControlBounds b : bounds) {
-            entries.add(new SyncConsoleControlsPayload.Entry(b.boneName(), b.worldBox()));
+            entries.add(new SyncConsoleControlsPayload.Entry(
+                    b.boneName(), b.worldBox(),
+                    b.config().type().id(),
+                    b.config().tiers(),
+                    b.config().duration(),
+                    b.config().tierMode().name(),
+                    b.config().animationId()));
         }
 
         ClientPlayNetworking.send(new SyncConsoleControlsPayload(be.getBlockPos(), entries));
