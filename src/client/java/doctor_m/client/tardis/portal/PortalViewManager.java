@@ -8,6 +8,7 @@ import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.renderpearl.api.buffers.GpuBuffer;
 import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
+import com.mojang.renderpearl.api.pipeline.BlendFunction;
 import com.mojang.renderpearl.api.pipeline.ColorTargetState;
 import com.mojang.renderpearl.api.pipeline.CompareOp;
 import com.mojang.renderpearl.api.pipeline.DepthStencilState;
@@ -26,6 +27,7 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.util.Util;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -54,7 +56,6 @@ public final class PortalViewManager {
     private final Map<BlockPos, CacheEntry> cache = new HashMap<>();
     private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
 
-    // ★ 生产用管线：关闭背面剔除，带深度测试（防穿模）
     public static final RenderPipeline PORTAL_PLANE = RenderPipeline.builder()
             .withLocation("pipeline/portal_plane")
             .withVertexShader("core/position_tex_color")
@@ -65,8 +66,8 @@ public final class PortalViewManager {
             .withVertexBinding(0, DefaultVertexFormat.POSITION_TEX_COLOR)
             .withPrimitiveTopology(PrimitiveTopology.QUADS)
             .withCull(false)
+            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
             .withDepthStencilState(new DepthStencilState(CompareOp.GREATER_THAN_OR_EQUAL, true))
-            .withColorTargetState(ColorTargetState.DEFAULT)
             .build();
 
     static {
@@ -85,11 +86,33 @@ public final class PortalViewManager {
 
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
         ClientLevel prepared = StpClientState.portalLevel();
+
         if (prepared == null) {
             activeDoors.clear();
+            cache.values().forEach(e -> {
+                if (e.framebuffer != null) e.framebuffer.destroy();
+            });
+            cache.clear();
             return;
         }
 
+        cache.entrySet().removeIf(entry -> {
+            BlockPos pos = entry.getKey();
+            CacheEntry ce = entry.getValue();
+            BlockEntity be = mc.level.getBlockEntity(pos);
+
+            boolean isClosed = !(be instanceof TardisDoorBlockEntity door) || door.isRemoved() || !door.isOpen();
+
+            if (isClosed) {
+                if (ce.framebuffer != null) {
+                    ce.framebuffer.destroy();
+                }
+                return true;
+            }
+            return false;
+        });
+
+        // 3. 正常渲染开着的门
         for (var door : activeDoors) {
             if (door.isRemoved() || !door.isOpen()) continue;
 
@@ -98,7 +121,6 @@ public final class PortalViewManager {
             entry.framebuffer.resize(mc.getWindow().getWidth(), mc.getWindow().getHeight());
 
             if (entry.mesh == null || Util.getMillis() - entry.builtAtMs > 250) {
-                // 恢复 STP 对面世界扫描
                 entry.mesh = PortalMesher.build(prepared, door.getCounterpartPos());
 
                 TardisAppearance app = TardisAppearanceRegistry.get(door.getAppearance());
@@ -127,13 +149,12 @@ public final class PortalViewManager {
         PortalCamera portalCam = new PortalCamera(
                 door.getBlockPos(), door.getBlockState().getValue(doctor_m.block.AbstractTardisDoorBlock.FACING),
                 door.getCounterpartPos(), door.getCounterpartFacing(),
-                camera.pos, camera.viewRotationMatrix, camera.projectionMatrix
+                camera.pos, camera.yRot, camera.xRot, camera.projectionMatrix
         );
 
         try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
                 RenderPassDescriptor.builder(() -> "Tardis Portal Offscreen")
-                        // 恢复透明背景
-                        .withColorAttachment(target.getColorTextureView(), Optional.of(new Vector4f(0, 0, 0, 0)))
+                        .withColorAttachment(target.getColorTextureView(), Optional.of(new Vector4f(0, 0, 0, 1)))
                         .withDepthAttachment(target.getDepthTextureView(), OptionalDouble.of(0.0))
                         .build())) {
 
@@ -205,16 +226,34 @@ public final class PortalViewManager {
             var target = entry.framebuffer.getTarget();
             pass.setUniform("Sampler0", target.getColorTextureView(), sampler);
 
-            // 换回生产用管线
             pass.setPipeline(RenderSystem.getCompiledPipeline(PORTAL_PLANE));
 
             ByteBufferBuilder bb = new ByteBufferBuilder(256);
             BufferBuilder builder = new BufferBuilder(bb, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-            putQuadVertex(builder, entry.hole.tl(), camera, 0, 1);
-            putQuadVertex(builder, entry.hole.bl(), camera, 0, 0);
-            putQuadVertex(builder, entry.hole.br(), camera, 1, 0);
-            putQuadVertex(builder, entry.hole.tr(), camera, 1, 1);
+            // 计算裁剪后的 UV
+            double w = entry.hole.tr().subtract(entry.hole.tl()).horizontalDistance();
+            double h = Math.abs(entry.hole.tl().y - entry.hole.bl().y);
+            float doorAspect = (float)(w / h);
+            float screenAspect = (float)mc.getWindow().getWidth() / mc.getWindow().getHeight();
+
+            float uMin = 0f, uMax = 1f;
+            float vMin = 0f, vMax = 1f;
+
+            if (doorAspect < screenAspect) {
+                float ratio = doorAspect / screenAspect;
+                uMin = 0.5f - ratio / 2f;
+                uMax = 0.5f + ratio / 2f;
+            } else {
+                float ratio = screenAspect / doorAspect;
+                vMin = 0.5f - ratio / 2f;
+                vMax = 0.5f + ratio / 2f;
+            }
+
+            putQuadVertex(builder, entry.hole.tl(), camera, uMin, vMax);
+            putQuadVertex(builder, entry.hole.bl(), camera, uMin, vMin);
+            putQuadVertex(builder, entry.hole.br(), camera, uMax, vMin);
+            putQuadVertex(builder, entry.hole.tr(), camera, uMax, vMax);
 
             MeshData meshData = builder.build();
             if (meshData != null) {
@@ -241,6 +280,7 @@ public final class PortalViewManager {
                 .setColor(0xFFFFFFFF);
     }
 
+    // 供 Mask 获取当前开着的门的轮廓
     public java.util.Collection<PortalDoorHole.DoorHole> getActiveHoles() {
         java.util.List<PortalDoorHole.DoorHole> holes = new java.util.ArrayList<>();
         for (CacheEntry entry : cache.values()) {
@@ -250,6 +290,9 @@ public final class PortalViewManager {
     }
 
     public void invalidateAll() {
+        cache.values().forEach(e -> {
+            if (e.framebuffer != null) e.framebuffer.destroy();
+        });
         cache.clear();
         activeDoors.clear();
     }

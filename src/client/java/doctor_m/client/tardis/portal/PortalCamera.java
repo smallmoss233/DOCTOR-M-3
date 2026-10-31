@@ -4,7 +4,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
-import org.joml.Vector3f;
 
 public class PortalCamera {
     public final Vec3 position;
@@ -12,27 +11,36 @@ public class PortalCamera {
     public final Matrix4f projectionMatrix;
 
     public PortalCamera(BlockPos localPos, Direction localFacing, BlockPos remotePos, Direction remoteFacing,
-                        Vec3 playerPos, Matrix4f playerView, Matrix4f playerProjection) {
+                        Vec3 playerPos, float yRot, float xRot, Matrix4f playerProjection) {
 
-        Vec3 localCenter = Vec3.atCenterOf(localPos);
-        Vec3 remoteCenter = Vec3.atCenterOf(remotePos);
+        Vec3 localCenter = new Vec3(localPos.getX() + 0.5, localPos.getY() + 1.0, localPos.getZ() + 0.5);
+        Vec3 remoteCenter = new Vec3(remotePos.getX() + 0.5, remotePos.getY() + 1.0, remotePos.getZ() + 0.5);
 
-        // 计算空间折叠旋转角度
-        float angle = localFacing.toYRot() - remoteFacing.getOpposite().toYRot();
+        Vec3 rel = playerPos.subtract(localCenter);
+        float deltaYaw = localFacing.toYRot() - remoteFacing.getOpposite().toYRot();
 
-        Matrix4f foldMatrix = new Matrix4f()
-                .translate((float) remoteCenter.x, (float) remoteCenter.y, (float) remoteCenter.z)
-                .rotateY((float) Math.toRadians(angle))
-                .translate((float) -localCenter.x, (float) -localCenter.y, (float) -localCenter.z);
+        double rad = Math.toRadians(deltaYaw);
+        double cos = Math.cos(rad);
+        double sin = Math.sin(rad);
+        Vec3 relRotated = new Vec3(rel.x * cos + rel.z * sin, rel.y, -rel.x * sin + rel.z * cos);
 
-        Vector3f tempPos = new Vector3f((float) playerPos.x, (float) playerPos.y, (float) playerPos.z);
-        foldMatrix.transformPosition(tempPos);
-        this.position = new Vec3(tempPos.x, tempPos.y, tempPos.z);
+        double parallaxScale = 0.2;
 
-        this.viewMatrix = new Matrix4f()
-                .translate((float) -position.x, (float) -position.y, (float) -position.z)
-                .rotateY((float) Math.toRadians(angle))
-                .mul(playerView);
+        double camX = relRotated.x * parallaxScale;
+        double camY = relRotated.y * parallaxScale;
+        double camZ = relRotated.z * parallaxScale;
+
+        this.position = remoteCenter.add(camX, camY, camZ);
+
+        float portalYaw = yRot + deltaYaw;
+        float portalPitch = xRot;
+
+        Matrix4f viewRot = new Matrix4f()
+                .rotateX((float) Math.toRadians(portalPitch))
+                .rotateY((float) Math.toRadians(180.0f - portalYaw));
+
+        this.viewMatrix = new Matrix4f(viewRot)
+                .translate((float) -position.x, (float) -position.y, (float) -position.z);
 
         this.projectionMatrix = new Matrix4f(playerProjection);
     }

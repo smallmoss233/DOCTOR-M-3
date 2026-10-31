@@ -8,7 +8,6 @@ public class PortalFramebuffer {
     private final TextureTarget target;
 
     public PortalFramebuffer() {
-        // 保证 FBO 具有 RGBA8 颜色和 D32 深度
         this.target = new TextureTarget("Tardis_Portal_Target", 1920, 1080, GpuFormat.RGBA8_UNORM, GpuFormat.D32_FLOAT);
     }
 
@@ -24,5 +23,9 @@ public class PortalFramebuffer {
 
     public GpuTextureView getColorTextureView() {
         return target.getColorTextureView();
+    }
+
+    public void destroy() {
+        target.destroyBuffers();
     }
 }
