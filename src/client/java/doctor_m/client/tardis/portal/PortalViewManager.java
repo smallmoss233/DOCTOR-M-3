@@ -26,8 +26,8 @@ import net.minecraft.client.renderer.BindGroupLayouts;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
-import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.core.BlockPos;
 import net.minecraft.util.Util;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
@@ -101,9 +101,12 @@ public final class PortalViewManager {
             CacheEntry ce = entry.getValue();
             BlockEntity be = mc.level.getBlockEntity(pos);
 
-            boolean isClosed = !(be instanceof TardisDoorBlockEntity door) || door.isRemoved() || !door.isOpen();
+            boolean shouldRemove = !(be instanceof TardisDoorBlockEntity door)
+                    || door.isRemoved()
+                    || !door.isOpen()
+                    || ce.hole == null;
 
-            if (isClosed) {
+            if (shouldRemove) {
                 if (ce.framebuffer != null) {
                     ce.framebuffer.destroy();
                 }
@@ -112,7 +115,6 @@ public final class PortalViewManager {
             return false;
         });
 
-        // 3. 正常渲染开着的门
         for (var door : activeDoors) {
             if (door.isRemoved() || !door.isOpen()) continue;
 
@@ -135,7 +137,8 @@ public final class PortalViewManager {
                 entry.builtAtMs = Util.getMillis();
             }
 
-            if (!entry.mesh.isEmpty() && entry.hole != null) {
+            // ★ 如果没有 hole，直接不渲染离屏画面
+            if (entry.hole != null && !entry.mesh.isEmpty()) {
                 doRenderToTarget(entry, door, camera);
             }
         }
@@ -231,7 +234,6 @@ public final class PortalViewManager {
             ByteBufferBuilder bb = new ByteBufferBuilder(256);
             BufferBuilder builder = new BufferBuilder(bb, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-            // 计算裁剪后的 UV
             double w = entry.hole.tr().subtract(entry.hole.tl()).horizontalDistance();
             double h = Math.abs(entry.hole.tl().y - entry.hole.bl().y);
             float doorAspect = (float)(w / h);
@@ -280,7 +282,6 @@ public final class PortalViewManager {
                 .setColor(0xFFFFFFFF);
     }
 
-    // 供 Mask 获取当前开着的门的轮廓
     public java.util.Collection<PortalDoorHole.DoorHole> getActiveHoles() {
         java.util.List<PortalDoorHole.DoorHole> holes = new java.util.ArrayList<>();
         for (CacheEntry entry : cache.values()) {

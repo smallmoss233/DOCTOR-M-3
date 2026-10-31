@@ -18,13 +18,15 @@ public final class PortalDoorHole {
     public record DoorHole(Vec3 tl, Vec3 tr, Vec3 br, Vec3 bl) {}
 
     public static DoorHole extract(BlockPos pos, Direction facing, TardisAsset.Bedrock asset) {
-        if (asset == null) return fallback(pos, facing);
+        // 没有 asset，直接不渲染
+        if (asset == null) return null;
 
         BedrockModelRef ref = BedrockRenderPipeline.resolve(asset.geometry(), asset.texture());
-        if (ref == null) return fallback(pos, facing);
+        if (ref == null) return null;
 
         BedrockGeometryModel.Bone bone = ref.geometry().byName().get(PORTAL_BONE);
-        if (bone == null || bone.cubes().isEmpty()) return fallback(pos, facing);
+        // 没有 boti_portal 骨骼，直接不渲染
+        if (bone == null || bone.cubes().isEmpty()) return null;
 
         float scale = asset.scale() / 16f;
         float rotDeg = Direction.NORTH.toYRot() - facing.toYRot();
@@ -69,7 +71,7 @@ public final class PortalDoorHole {
             }
         }
 
-        if (maxWX < minWX) return fallback(pos, facing);
+        if (maxWX < minWX) return null;
 
         Vec3 center = new Vec3((minWX + maxWX) / 2.0, (minWY + maxWY) / 2.0, (minWZ + maxWZ) / 2.0);
         double width, height = maxWY - minWY;
@@ -79,7 +81,8 @@ public final class PortalDoorHole {
             width = maxWZ - minWZ;
         }
 
-        if (width < 0.1 || height < 0.1) return fallback(pos, facing);
+        // 尺寸明显不对也不渲染
+        if (width < 0.1 || height < 0.1) return null;
 
         Vec3 n = new Vec3(facing.getStepX(), facing.getStepY(), facing.getStepZ());
         center = center.add(n.scale(0.02));
@@ -101,29 +104,6 @@ public final class PortalDoorHole {
                 center.add(halfH).add(halfW),      // tr
                 center.subtract(halfH).add(halfW), // br
                 center.subtract(halfH).subtract(halfW)  // bl
-        );
-    }
-
-    private static DoorHole fallback(BlockPos pos, Direction facing) {
-        double x = pos.getX(), y = pos.getY(), z = pos.getZ();
-        Vec3 right = switch (facing) {
-            case NORTH -> new Vec3(1, 0, 0);
-            case SOUTH -> new Vec3(-1, 0, 0);
-            case EAST -> new Vec3(0, 0, -1);
-            case WEST -> new Vec3(0, 0, 1);
-            default -> new Vec3(1, 0, 0);
-        };
-        Vec3 up = new Vec3(0, 1, 0);
-        Vec3 c = new Vec3(x + 0.5, y + 1.0, z + 0.5).add(new Vec3(facing.getStepX(), 0, facing.getStepZ()).scale(0.02));
-
-        Vec3 halfW = right.scale(0.75);
-        Vec3 halfH = up.scale(1.0);
-
-        return new DoorHole(
-                c.add(halfH).subtract(halfW),
-                c.add(halfH).add(halfW),
-                c.subtract(halfH).add(halfW),
-                c.subtract(halfH).subtract(halfW)
         );
     }
 }
