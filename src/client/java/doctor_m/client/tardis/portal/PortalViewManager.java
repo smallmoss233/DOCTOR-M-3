@@ -344,7 +344,7 @@ public final class PortalViewManager {
         PortalCamera portalCam = new PortalCamera(
                 door.getBlockPos(), door.getBlockState().getValue(AbstractTardisDoorBlock.FACING),
                 door.getCounterpartPos(), door.getCounterpartFacing(),
-                camera.pos, camera.yRot, camera.xRot, camera.projectionMatrix
+                camera
         );
 
         try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
@@ -398,7 +398,6 @@ public final class PortalViewManager {
         try {
             BufferBuilder builder = new BufferBuilder(byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.BLOCK);
             for (PortalQuad q : mesh.quads()) {
-                // 不要走 PortalQuad#vertices()：它每次调用都新建一个 4 元素数组
                 addVertex(builder, q.a());
                 addVertex(builder, q.b());
                 addVertex(builder, q.c());
@@ -428,7 +427,9 @@ public final class PortalViewManager {
         builder.addVertex(v.x(), v.y(), v.z())
                 .setColor(v.color())
                 .setUv(v.u(), v.v())
-                .setLight(v.light());
+                .setOverlay(net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY)
+                .setLight(v.light())
+                .setNormal(v.nx(), v.ny(), v.nz());
     }
 
     public void renderPortalQuad(RenderPass pass) {
