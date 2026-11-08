@@ -6,6 +6,7 @@ import com.mojang.blaze3d.vertex.ByteBufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.MeshData;
 import com.mojang.renderpearl.api.buffers.GpuBuffer;
+import com.mojang.renderpearl.api.buffers.GpuBufferSlice;
 import com.mojang.renderpearl.api.commands.RenderPass;
 import com.mojang.renderpearl.api.commands.RenderPassDescriptor;
 import com.mojang.renderpearl.api.pipeline.*;
@@ -21,6 +22,7 @@ import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.BindGroupLayouts;
+import net.minecraft.client.renderer.ProjectionMatrixBuffer;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.texture.TextureAtlas;
@@ -48,20 +50,8 @@ public final class PortalViewManager {
         return INSTANCE;
     }
 
-    /**
-     * 门户缓存键：门所在维度 + 方块坐标。
-     *
-     * <p>只拿 {@link BlockPos} 当键时，外门与内门只要恰好落在同一坐标就会互相
-     * 覆盖 —— 门户画面、FBO 全部串台。维度必须进键。
-     */
     private record DoorKey(ResourceKey<Level> dimension, BlockPos pos) {}
 
-    /**
-     * 一格门的离屏渲染缓存。
-     *
-     * <p>这里记录的 {@code sourceLevel / anchor / appearanceId / facing} 是
-     * <b>上次烘焙网格时的输入</b>。任何一个变了才需要重扫世界重建网格。
-     */
     private static final class CacheEntry {
         ClientLevel sourceLevel;
         BlockPos anchor;
@@ -69,49 +59,40 @@ public final class PortalViewManager {
         Direction facing;
         PortalMesh mesh;
         PortalFramebuffer framebuffer;
+
+        /**
+         * 当前门的门洞（当前维度，主 pass quad 用）。
+         * 玩家看这扇门，FBO 就贴在这个门洞的世界坐标矩形上。
+         */
         PortalDoorHole.DoorHole hole;
-        /** 烘焙该网格时预构建 level 的区块版本号。 */
+
+        /**
+         * 对面门的门洞（预构建维度，FBO 视锥用）。
+         *
+         * <p><b>为什么必须有这个字段</b>：虚拟相机的位置由 {@link PortalCamera}
+         * 算出，物理上位于<b>对面维度</b>（对面门中心附近）。FBO 要渲染的是
+         * "虚拟相机透过对面门洞看到对面维度内部"的画面，视锥必须钉在
+         * <b>对面门洞</b>上。用当前门的门洞会让视锥对准当前维度的坐标——
+         * 跨维度坐标差导致相机看到"对面维度某个虚空方向"，画面完全错位。
+         */
+        PortalDoorHole.DoorHole remoteHole;
+
         int chunkRevision;
         long lastMeshRebuildMs;
 
-        // 网格不常变，对应的 VBO 也不需要每帧重建
         GpuBuffer meshBuffer;
         int meshQuadCount;
 
-        // 门户平面的顶点是世界坐标，只有 hole / 窗口尺寸变化时才需要重传
         GpuBuffer quadBuffer;
         PortalDoorHole.DoorHole quadHole;
         int quadWidth;
         int quadHeight;
     }
 
-    /**
-     * 门户离屏渲染的缩放比例。
-     *
-     * <p>每个开着的门各需要一张颜色 + 深度纹理。全分辨率时门一多，显存和
-     * 填充率都会线性增长；门户画面本来就会被门框裁掉大半，0.5 倍几乎看不出差别。
-     */
     private static final float PORTAL_RENDER_SCALE = 0.5f;
-
-    /**
-     * 预构建 level 还在灌区块时，网格最多每 200ms 重烘焙一次。
-     *
-     * <p>区块是分帧写入的（见 {@code StpClientState#chunkRevision}），所以网格
-     * 需要跟着更新；但每帧都重扫一遍 11 万个方块同样不可接受。灌完之后
-     * 版本号不再变化，这里就彻底安静了 —— 不会像旧版那样每 250ms 无条件重扫。
-     */
     private static final long MESH_REBUILD_INTERVAL_MS = 200L;
-
-    /**
-     * 同时缓存的门户离屏缓冲数量上限。
-     *
-     * <p>每扇开着的门都需要一张颜色 + 深度离屏纹理（半分辨率）。门越多，
-     * 显存和填充率增长越快；门户本来就是"当前画面里能看到的几扇门"，
-     * 缓存上限以 8 扇为够，多了按 LRU 淘汰最久未使用的，释放其 FBO/VBO。
-     */
     private static final int MAX_CACHED_PORTALS = 8;
 
-    // access-order：最近访问的排在后面，淘汰时优先移除头部（最久未使用）
     private final LinkedHashMap<DoorKey, CacheEntry> cache = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
         protected boolean removeEldestEntry(Map.Entry<DoorKey, CacheEntry> eldest) {
@@ -124,21 +105,14 @@ public final class PortalViewManager {
     };
     private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
 
-    /** 资源重载线程只置位；真正的 GPU 资源销毁留给渲染线程。 */
     private volatile boolean invalidateRequested;
-
-    /**
-     * 门洞集合的版本号。
-     *
-     * <p>遮罩渲染器把所有门洞合进一个 VBO，它需要知道"门洞变了没有"。
-     * 网格重建、门被移除、缓存整体作废都会自增。
-     */
     private long holeRevision;
 
-    /** 门洞集合版本号；变化时遮罩 VBO 需要重建。 */
     public long holeRevision() {
         return holeRevision;
     }
+
+    private ProjectionMatrixBuffer portalProjectionBuffer;
 
     public static final RenderPipeline PORTAL_PLANE = RenderPipeline.builder()
             .withLocation("pipeline/portal_plane")
@@ -160,12 +134,6 @@ public final class PortalViewManager {
 
     private PortalViewManager() {}
 
-    /**
-     * 注册资源重载监听器。
-     *
-     * <p>方块模型换了而网格不换，门户里会一直显示旧贴图 / 旧几何。
-     * 监听器本身不碰 GPU 资源，只把"需要重建"的意图交给渲染线程。
-     */
     public static void register() {
         ResourceManagerHelper.get(PackType.CLIENT_RESOURCES).registerReloadListener(
                 new SimpleSynchronousResourceReloadListener() {
@@ -189,6 +157,10 @@ public final class PortalViewManager {
         var mc = Minecraft.getInstance();
         if (mc.level == null) return;
 
+        if (portalProjectionBuffer == null) {
+            portalProjectionBuffer = new ProjectionMatrixBuffer("Tardis Portal Projection");
+        }
+
         if (invalidateRequested) {
             invalidateRequested = false;
             disposeAll();
@@ -203,8 +175,6 @@ public final class PortalViewManager {
             return;
         }
 
-        // 门户还在画面里 → 续期预构建 level。否则挂满 30 秒后它会被判过期，
-        // 玩家真正穿门时又退回原版加载界面（StpClientState.portalKeepAlive 的用途）。
         if (!activeDoors.isEmpty()) {
             StpClientState.portalKeepAlive();
         }
@@ -240,9 +210,6 @@ public final class PortalViewManager {
                 cache.put(key, entry);
             }
 
-            // 只在这些输入变化时重扫世界。旧版每 250ms 无条件重建一次：
-            // 一次半径 24 的扫描是 11 万多次 getBlockState + tesselate，
-            // 而预构建 level 的方块内容根本不会变 —— 纯烧 CPU。
             long nowMs = System.currentTimeMillis();
             int revision = StpClientState.chunkRevision();
 
@@ -251,7 +218,6 @@ public final class PortalViewManager {
                     || entry.facing != facing
                     || !Objects.equals(entry.appearanceId, appearanceId);
 
-            // 流式灌区块期间内容会变：版本号变了才允许重烘焙，且限频。
             boolean contentChanged = revision != entry.chunkRevision
                     && nowMs - entry.lastMeshRebuildMs >= MESH_REBUILD_INTERVAL_MS;
 
@@ -270,6 +236,7 @@ public final class PortalViewManager {
                 entry.meshQuadCount = 0;
                 entry.mesh = PortalMesher.build(prepared, counterpart);
 
+                // 当前门的门洞（主 pass quad 用）
                 TardisAppearance app = TardisAppearanceRegistry.get(appearanceId);
                 TardisAsset.Bedrock asset = null;
                 if (app != null) {
@@ -277,17 +244,25 @@ public final class PortalViewManager {
                     if (a instanceof TardisAsset.Bedrock b) asset = b;
                 }
                 entry.hole = PortalDoorHole.extract(door.getBlockPos(), facing, asset);
+
+                // ★ 对面门的门洞（FBO 视锥用）：以对面 asset + 对面 pos/facing 提取
+                TardisAsset.Bedrock remoteAsset = null;
+                if (app != null) {
+                    TardisAsset a = door.isExterior() ? app.interior() : app.exterior();
+                    if (a instanceof TardisAsset.Bedrock b) remoteAsset = b;
+                }
+                entry.remoteHole = PortalDoorHole.extract(
+                        counterpart, door.getCounterpartFacing(), remoteAsset);
+
                 holeRevision++;
             }
 
-            // 没有 boti_portal 骨骼 / 没有网格 → 这个门不显示门户。
-            // 注意：缓存必须保留，否则每帧都会被当成"缺 hole"重新烘焙一次。
-            if (entry.hole == null || entry.mesh.isEmpty()) continue;
+            // 主 pass 用 hole；FBO 视锥用 remoteHole。两者都非空才渲染。
+            if (entry.hole == null || entry.remoteHole == null || entry.mesh.isEmpty()) continue;
 
             if (entry.framebuffer == null) {
                 entry.framebuffer = new PortalFramebuffer();
             }
-            // 半分辨率：门户画面被门框裁掉大半，全分辨率画布纯属浪费
             entry.framebuffer.resize(
                     Math.max(1, (int) (mc.getWindow().getWidth() * PORTAL_RENDER_SCALE)),
                     Math.max(1, (int) (mc.getWindow().getHeight() * PORTAL_RENDER_SCALE)));
@@ -315,7 +290,6 @@ public final class PortalViewManager {
             try {
                 buffer.close();
             } catch (Exception ignored) {
-                // 设备已经在销毁过程中时，关闭失败没有补救意义
             }
         }
     }
@@ -325,14 +299,12 @@ public final class PortalViewManager {
         cache.clear();
     }
 
-    /** 渲染线程调用：立即销毁全部门户缓存。 */
     public void invalidateAll() {
         invalidateRequested = false;
         disposeAll();
         activeDoors.clear();
     }
 
-    /** 任意线程调用：请求在下一帧销毁并重建门户缓存。 */
     public void requestInvalidate() {
         invalidateRequested = true;
     }
@@ -344,8 +316,18 @@ public final class PortalViewManager {
         PortalCamera portalCam = new PortalCamera(
                 door.getBlockPos(), door.getBlockState().getValue(AbstractTardisDoorBlock.FACING),
                 door.getCounterpartPos(), door.getCounterpartFacing(),
-                camera
+                camera.pos, camera.yRot, camera.xRot
         );
+
+        // 只用 remoteHole
+        PortalFrustum frustum = new PortalFrustum(portalCam, entry.remoteHole, camera.depthFar);
+
+        // ★ 新增：如果当前视角太偏，导致视锥畸变，直接跳过这一帧
+        if (!frustum.valid) {
+            return;
+        }
+
+        GpuBufferSlice projectionSlice = portalProjectionBuffer.getBuffer(frustum.projectionMatrix);
 
         try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
                 RenderPassDescriptor.builder(() -> "Tardis Portal Offscreen")
@@ -354,11 +336,10 @@ public final class PortalViewManager {
                         .build())) {
 
             RenderSystem.bindDefaultUniforms(pass);
+            pass.setUniform("Projection", projectionSlice);
 
-            var projection = RenderSystem.getProjectionMatrixBuffer();
-            if (projection != null) pass.setUniform("Projection", projection);
-
-            var transform = RenderSystem.getDynamicUniforms().writeTransform(portalCam.viewMatrix, new Vector4f(1,1,1,1), new Vector3f(), new Matrix4f());
+            var transform = RenderSystem.getDynamicUniforms().writeTransform(
+                    portalCam.viewMatrix, new Vector4f(1, 1, 1, 1), new Vector3f(), new Matrix4f());
             pass.setUniform("DynamicTransforms", transform);
 
             var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
@@ -372,12 +353,6 @@ public final class PortalViewManager {
         }
     }
 
-    /**
-     * 提交离屏网格。
-     *
-     * <p>网格本身只在门打开 / 换维度 / 灌区块时变，VBO 没必要每帧重建 ——
-     * 旧版每帧都 `createBuffer` + `map` + `close`，是纯 GPU 驱动开销。
-     */
     private void submitMeshToPass(CacheEntry entry, RenderPass pass) {
         if (entry.meshBuffer == null) {
             entry.meshQuadCount = entry.mesh.quads().size();
@@ -441,8 +416,6 @@ public final class PortalViewManager {
         var projection = RenderSystem.getProjectionMatrixBuffer();
         if (projection != null) pass.setUniform("Projection", projection);
 
-        // 顶点直接用世界坐标，相机位移放进 DynamicTransforms —— 这样顶点数据
-        // 不会因为玩家走动每帧变化，VBO 可以一直复用。
         Matrix4f camMat = new Matrix4f(camera.viewRotationMatrix);
         camMat.translate((float) -camera.pos.x, (float) -camera.pos.y, (float) -camera.pos.z);
         var transform = RenderSystem.getDynamicUniforms().writeTransform(
@@ -455,13 +428,12 @@ public final class PortalViewManager {
         for (CacheEntry entry : cache.values()) {
             if (entry.framebuffer == null || entry.hole == null) continue;
 
-            // hole 变了、窗口尺寸变了才需要重算 UV 并重传
             if (entry.quadBuffer == null
                     || entry.quadHole != entry.hole
                     || entry.quadWidth != winW
                     || entry.quadHeight != winH) {
                 closeQuietly(entry.quadBuffer);
-                entry.quadBuffer = buildQuadBuffer(entry.hole, winW, winH);
+                entry.quadBuffer = buildQuadBuffer(entry.hole);
                 entry.quadHole = entry.hole;
                 entry.quadWidth = winW;
                 entry.quadHeight = winH;
@@ -479,33 +451,15 @@ public final class PortalViewManager {
         }
     }
 
-    private static GpuBuffer buildQuadBuffer(PortalDoorHole.DoorHole hole, int screenW, int screenH) {
+    private static GpuBuffer buildQuadBuffer(PortalDoorHole.DoorHole hole) {
         ByteBufferBuilder bb = new ByteBufferBuilder(256);
         try {
             BufferBuilder builder = new BufferBuilder(bb, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
 
-            double w = hole.tr().subtract(hole.tl()).horizontalDistance();
-            double h = Math.abs(hole.tl().y - hole.bl().y);
-            float doorAspect = (float) (w / h);
-            float screenAspect = (float) screenW / screenH;
-
-            float uMin = 0f, uMax = 1f;
-            float vMin = 0f, vMax = 1f;
-
-            if (doorAspect < screenAspect) {
-                float ratio = doorAspect / screenAspect;
-                uMin = 0.5f - ratio / 2f;
-                uMax = 0.5f + ratio / 2f;
-            } else {
-                float ratio = screenAspect / doorAspect;
-                vMin = 0.5f - ratio / 2f;
-                vMax = 0.5f + ratio / 2f;
-            }
-
-            putQuadVertex(builder, hole.tl(), uMin, vMax);
-            putQuadVertex(builder, hole.bl(), uMin, vMin);
-            putQuadVertex(builder, hole.br(), uMax, vMin);
-            putQuadVertex(builder, hole.tr(), uMax, vMax);
+            putQuadVertex(builder, hole.tl(), 0f, 1f);
+            putQuadVertex(builder, hole.bl(), 0f, 0f);
+            putQuadVertex(builder, hole.br(), 1f, 0f);
+            putQuadVertex(builder, hole.tr(), 1f, 1f);
 
             MeshData meshData = builder.build();
             if (meshData == null) return null;
@@ -532,8 +486,8 @@ public final class PortalViewManager {
                 .setColor(0xFFFFFFFF);
     }
 
-    public java.util.Collection<PortalDoorHole.DoorHole> getActiveHoles() {
-        java.util.List<PortalDoorHole.DoorHole> holes = new java.util.ArrayList<>(cache.size());
+    public Collection<PortalDoorHole.DoorHole> getActiveHoles() {
+        List<PortalDoorHole.DoorHole> holes = new ArrayList<>(cache.size());
         for (CacheEntry entry : cache.values()) {
             if (entry.hole != null) holes.add(entry.hole);
         }
