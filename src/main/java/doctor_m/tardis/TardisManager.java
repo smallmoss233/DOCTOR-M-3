@@ -8,6 +8,7 @@ import doctor_m.tardis.data.TardisRegistryData;
 import doctor_m.tardis.data.TardisState;
 import doctor_m.tardis.door.TardisDoorManager;
 import doctor_m.tardis.door.TardisTeleporter;
+import doctor_m.tardis.flight.TardisFlight;
 import doctor_m.tardis.interior.TardisInteriorManager;
 import mosslib.core.dimension.DimensionTemplate;
 import mosslib.core.dimension.DynamicDimensionManager;

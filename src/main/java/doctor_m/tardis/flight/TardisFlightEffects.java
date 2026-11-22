@@ -1,8 +1,9 @@
-package doctor_m.tardis;
+package doctor_m.tardis.flight;
 
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.register.DMBlocks;
+import doctor_m.tardis.TardisManager;
 import doctor_m.tardis.data.TardisData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
