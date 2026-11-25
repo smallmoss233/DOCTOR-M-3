@@ -18,14 +18,12 @@ public final class PortalDoorHole {
     public record DoorHole(Vec3 tl, Vec3 tr, Vec3 br, Vec3 bl) {}
 
     public static DoorHole extract(BlockPos pos, Direction facing, TardisAsset.Bedrock asset) {
-        // 没有 asset，直接不渲染
         if (asset == null) return null;
 
         BedrockModelRef ref = BedrockRenderPipeline.resolve(asset.geometry(), asset.texture());
         if (ref == null) return null;
 
         BedrockGeometryModel.Bone bone = ref.geometry().byName().get(PORTAL_BONE);
-        // 没有 boti_portal 骨骼，直接不渲染
         if (bone == null || bone.cubes().isEmpty()) return null;
 
         float scale = asset.scale() / 16f;
@@ -81,19 +79,16 @@ public final class PortalDoorHole {
             width = maxWZ - minWZ;
         }
 
-        // 尺寸明显不对也不渲染
         if (width < 0.1 || height < 0.1) return null;
 
         Vec3 n = new Vec3(facing.getStepX(), facing.getStepY(), facing.getStepZ());
         center = center.add(n.scale(0.02));
 
-        Vec3 right = switch (facing) {
-            case NORTH -> new Vec3(1, 0, 0);
-            case SOUTH -> new Vec3(-1, 0, 0);
-            case EAST -> new Vec3(0, 0, -1);
-            case WEST -> new Vec3(0, 0, 1);
-            default -> new Vec3(1, 0, 0);
-        };
+        Vec3 right = new Vec3(
+                facing.getClockWise().getStepX(),
+                0,
+                facing.getClockWise().getStepZ());
+
         Vec3 up = new Vec3(0, 1, 0);
 
         Vec3 halfW = right.scale(width / 2.0);

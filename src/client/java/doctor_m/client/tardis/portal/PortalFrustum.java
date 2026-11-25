@@ -10,7 +10,10 @@ public final class PortalFrustum {
     /** false 表示视锥无效，当前视角已超出安全范围，应跳过渲染 */
     public final boolean valid;
 
-    private static final float NEAR = 0.05f;
+    /** near 相对门洞平面的回退量，避免角点恰好压在 near 上产生边界锯齿 */
+    private static final float NEAR_BACKOFF = 0.005f;
+    /** 玩家贴门到这个距离以内就停渲（穿门语义，fade 会盖住） */
+    private static final float MIN_PLANE_DIST = 0.02f;
 
     public PortalFrustum(PortalCamera cam, PortalDoorHole.DoorHole remoteHole, float far) {
         this(cam.position, cam.forward, cam.right, cam.up, remoteHole, far);
@@ -28,31 +31,40 @@ public final class PortalFrustum {
                 (float) (camPos.x + camForward.x),
                 (float) (camPos.y + camForward.y),
                 (float) (camPos.z + camForward.z),
-                (float) camUp.x, (float) camUp.y, (float) camUp.z
-        );
+                (float) camUp.x, (float) camUp.y, (float) camUp.z);
 
-        float farClamped = Math.max(far, NEAR + 0.01f);
+        Vec3 holeCenter = tl.add(tr).add(br).add(bl).scale(0.25);
+        Vec3 fwd = new Vec3(camForward.x, camForward.y, camForward.z);
+        float planeDist = (float) holeCenter.subtract(camPos).dot(fwd);
+
+        if (planeDist < MIN_PLANE_DIST) {
+            this.projectionMatrix = new Matrix4f();
+            this.valid = false;
+            return;
+        }
+        float near = planeDist - NEAR_BACKOFF;
+        float farClamped = Math.max(far, near + 0.01f);
+
         float left = Float.POSITIVE_INFINITY, right = Float.NEGATIVE_INFINITY;
         float bottom = Float.POSITIVE_INFINITY, top = Float.NEGATIVE_INFINITY;
-
         Vec3[] corners = { tl, tr, br, bl };
         for (Vec3 corner : corners) {
             Vector3f v = view.transformPosition(corner.toVector3f());
-            // 只要有一个角点在相机后方或贴得太近，直接作废，防止光栅化出现极端的黑色剪切面
-            if (-v.z <= 0.01f) {
+            // 角点落在 near 之上（即相机已贴近/穿过门平面）→ 作废
+            if (-v.z <= near) {
                 this.projectionMatrix = new Matrix4f();
                 this.valid = false;
                 return;
             }
-            float px = v.x * NEAR / -v.z;
-            float py = v.y * NEAR / -v.z;
+            float px = v.x * near / -v.z;
+            float py = v.y * near / -v.z;
             if (px < left) left = px;
             if (px > right) right = px;
             if (py < bottom) bottom = py;
             if (py > top) top = py;
         }
 
-        this.projectionMatrix = frustumReversedZ(left, right, bottom, top, NEAR, farClamped);
+        this.projectionMatrix = frustumReversedZ(left, right, bottom, top, near, farClamped);
         this.valid = true;
     }
 

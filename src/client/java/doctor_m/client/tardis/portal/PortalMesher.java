@@ -30,8 +30,8 @@ public final class PortalMesher {
     public static PortalMesh build(ClientLevel level, BlockPos anchor) {
         Minecraft mc = Minecraft.getInstance();
         BlockStateModelSet modelSet = mc.getModelManager().getBlockStateModelSet();
-        // AO 关闭（一期逐面平光）；第二参数沿用 SectionCompiler 的 true
-        ModelBlockRenderer renderer = new ModelBlockRenderer(false, true, mc.getBlockColors());
+
+        ModelBlockRenderer renderer = new ModelBlockRenderer(true, true, mc.getBlockColors());
 
         PortalVertexCollector collector = new PortalVertexCollector();
         BlockQuadOutput output = (x, y, z, quad, instance) ->

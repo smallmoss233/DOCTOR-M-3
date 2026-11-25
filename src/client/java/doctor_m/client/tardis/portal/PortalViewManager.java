@@ -32,11 +32,15 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.util.ARGB;
+import net.minecraft.util.Mth;
+import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
+import org.joml.Vector3fc;
 import org.joml.Vector4f;
 
 import java.util.*;
@@ -45,6 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class PortalViewManager {
 
     private static PortalViewManager INSTANCE;
+
     public static PortalViewManager get() {
         if (INSTANCE == null) INSTANCE = new PortalViewManager();
         return INSTANCE;
@@ -59,37 +64,50 @@ public final class PortalViewManager {
         Direction facing;
         PortalMesh mesh;
         PortalFramebuffer framebuffer;
-
         /**
          * 当前门的门洞（当前维度，主 pass quad 用）。
          * 玩家看这扇门，FBO 就贴在这个门洞的世界坐标矩形上。
          */
         PortalDoorHole.DoorHole hole;
-
         /**
          * 对面门的门洞（预构建维度，FBO 视锥用）。
          *
-         * <p><b>为什么必须有这个字段</b>：虚拟相机的位置由 {@link PortalCamera}
-         * 算出，物理上位于<b>对面维度</b>（对面门中心附近）。FBO 要渲染的是
-         * "虚拟相机透过对面门洞看到对面维度内部"的画面，视锥必须钉在
-         * <b>对面门洞</b>上。用当前门的门洞会让视锥对准当前维度的坐标——
-         * 跨维度坐标差导致相机看到"对面维度某个虚空方向"，画面完全错位。
+         * <p>虚拟相机物理上位于对面维度（对面门洞附近），视锥必须钉在
+         * 对面门洞上；用当前门的门洞会让视锥对准当前维度坐标，画面完全错位。
          */
         PortalDoorHole.DoorHole remoteHole;
-
+        /** 对面门朝向（与 remoteHole 同时提取，PortalCamera 构造用）。 */
+        Direction remoteFacing;
         int chunkRevision;
         long lastMeshRebuildMs;
-
         GpuBuffer meshBuffer;
         int meshQuadCount;
-
         GpuBuffer quadBuffer;
         PortalDoorHole.DoorHole quadHole;
-        int quadWidth;
-        int quadHeight;
+        float lastQuadAlpha = -1f;
+        /** 上一帧贴回 quad 用的 UV（压平为 [u0,v0,u1,v1,...]），用于判断是否需要重建 quad buffer。 */
+        float[] lastQuadUvs;
+        /**
+         * 本帧 FBO 实际渲染时使用的视锥投影矩阵（offscreen 阶段写入），
+         * 主 pass 贴回 quad 时用它对对面门洞角点做投影，算出正确的采样 UV。
+         */
+        Matrix4f frustumProj;
+        /** 本帧 FBO 实际渲染时使用的虚拟相机视图矩阵。 */
+        Matrix4f portalView;
+        /** 本帧淡入透明度快照（offscreen 阶段从 BE 抓取，quad 与 mask 共用）。 */
+        float fadeAlpha = 1.0f;
+        /**
+         * 本帧是否实际渲染。这是 mask 与 quad 的唯一事实来源：
+         * PortalMaskRenderer 用 {@link #getActiveHoles()}，主 pass quad 用
+         * {@link #renderPortalQuad}，两边绝不允许各自再做剔除，
+         * 否则"mask 了却没画 quad"= 纯色黑洞门。
+         */
+        boolean activeThisFrame;
     }
 
-    private static final float PORTAL_RENDER_SCALE = 0.5f;
+    private static final float PORTAL_RENDER_SCALE = 1.0f;
+    /** 单帧最多同时渲染的门户数量（按离相机距离截断，与 mask 共用）。 */
+    private static final int MAX_ACTIVE_PER_FRAME = 4;
     private static final long MESH_REBUILD_INTERVAL_MS = 200L;
     private static final int MAX_CACHED_PORTALS = 8;
 
@@ -103,8 +121,8 @@ public final class PortalViewManager {
             return false;
         }
     };
-    private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
 
+    private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
     private volatile boolean invalidateRequested;
     private long holeRevision;
 
@@ -156,29 +174,26 @@ public final class PortalViewManager {
     public void renderOffscreenPass() {
         var mc = Minecraft.getInstance();
         if (mc.level == null) return;
-
         if (portalProjectionBuffer == null) {
             portalProjectionBuffer = new ProjectionMatrixBuffer("Tardis Portal Projection");
         }
-
         if (invalidateRequested) {
             invalidateRequested = false;
             disposeAll();
         }
-
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
         ClientLevel prepared = StpClientState.portalLevel();
-
         if (prepared == null) {
             activeDoors.clear();
             disposeAll();
             return;
         }
-
         if (!activeDoors.isEmpty()) {
             StpClientState.portalKeepAlive();
         }
-
+        for (CacheEntry e : cache.values()) {
+            e.activeThisFrame = false;
+        }
         cache.entrySet().removeIf(entry -> {
             DoorKey key = entry.getKey();
             if (!mc.level.dimension().equals(key.dimension())) {
@@ -186,21 +201,17 @@ public final class PortalViewManager {
             }
             BlockEntity be = mc.level.getBlockEntity(key.pos());
             boolean gone = !(be instanceof TardisDoorBlockEntity door)
-                    || door.isRemoved()
-                    || !door.isOpen();
+                    || door.isRemoved() || !door.isOpen();
             return gone && dispose(entry.getValue());
         });
-
+        List<CacheEntry> candidates = new ArrayList<>(activeDoors.size());
         for (TardisDoorBlockEntity door : activeDoors) {
             if (door.isRemoved() || !door.isOpen()) continue;
-
             BlockPos counterpart = door.getCounterpartPos();
             if (counterpart == null) continue;
             if (!(door.getBlockState().getBlock() instanceof AbstractTardisDoorBlock)) continue;
-
             Direction facing = door.getBlockState().getValue(AbstractTardisDoorBlock.FACING);
             Identifier appearanceId = door.getAppearance();
-
             Level doorLevel = door.getLevel();
             if (doorLevel == null) continue;
             DoorKey key = new DoorKey(doorLevel.dimension(), door.getBlockPos());
@@ -209,18 +220,14 @@ public final class PortalViewManager {
                 entry = new CacheEntry();
                 cache.put(key, entry);
             }
-
             long nowMs = System.currentTimeMillis();
             int revision = StpClientState.chunkRevision();
-
             boolean inputChanged = entry.sourceLevel != prepared
                     || !counterpart.equals(entry.anchor)
                     || entry.facing != facing
                     || !Objects.equals(entry.appearanceId, appearanceId);
-
             boolean contentChanged = revision != entry.chunkRevision
                     && nowMs - entry.lastMeshRebuildMs >= MESH_REBUILD_INTERVAL_MS;
-
             if (entry.mesh == null || inputChanged || contentChanged) {
                 entry.sourceLevel = prepared;
                 entry.anchor = counterpart;
@@ -228,14 +235,12 @@ public final class PortalViewManager {
                 entry.appearanceId = appearanceId;
                 entry.chunkRevision = revision;
                 entry.lastMeshRebuildMs = nowMs;
-
                 if (entry.meshBuffer != null) {
                     entry.meshBuffer.close();
                     entry.meshBuffer = null;
                 }
                 entry.meshQuadCount = 0;
                 entry.mesh = PortalMesher.build(prepared, counterpart);
-
                 // 当前门的门洞（主 pass quad 用）
                 TardisAppearance app = TardisAppearanceRegistry.get(appearanceId);
                 TardisAsset.Bedrock asset = null;
@@ -244,32 +249,44 @@ public final class PortalViewManager {
                     if (a instanceof TardisAsset.Bedrock b) asset = b;
                 }
                 entry.hole = PortalDoorHole.extract(door.getBlockPos(), facing, asset);
-
-                // ★ 对面门的门洞（FBO 视锥用）：以对面 asset + 对面 pos/facing 提取
+                // 对面门的门洞（FBO 视锥用）：对面 asset + 对面 pos/facing
                 TardisAsset.Bedrock remoteAsset = null;
                 if (app != null) {
                     TardisAsset a = door.isExterior() ? app.interior() : app.exterior();
                     if (a instanceof TardisAsset.Bedrock b) remoteAsset = b;
                 }
+                entry.remoteFacing = door.getCounterpartFacing();
                 entry.remoteHole = PortalDoorHole.extract(
-                        counterpart, door.getCounterpartFacing(), remoteAsset);
-
+                        counterpart, entry.remoteFacing, remoteAsset);
                 holeRevision++;
             }
-
-            // 主 pass 用 hole；FBO 视锥用 remoteHole。两者都非空才渲染。
             if (entry.hole == null || entry.remoteHole == null || entry.mesh.isEmpty()) continue;
-
+            entry.fadeAlpha = Mth.clamp(door.getFadeAlpha(), 0.0f, 1.0f);
+            candidates.add(entry);
+        }
+        activeDoors.clear();
+        if (candidates.size() > MAX_ACTIVE_PER_FRAME) {
+            Vec3 camPos = camera.pos;
+            candidates.sort(Comparator.comparingDouble(e -> {
+                Vec3 c = e.hole.tl().add(e.hole.br()).scale(0.5);
+                return c.subtract(camPos).lengthSqr();
+            }));
+            candidates = candidates.subList(0, MAX_ACTIVE_PER_FRAME);
+        }
+        for (CacheEntry entry : candidates) {
             if (entry.framebuffer == null) {
                 entry.framebuffer = new PortalFramebuffer();
             }
             entry.framebuffer.resize(
                     Math.max(1, (int) (mc.getWindow().getWidth() * PORTAL_RENDER_SCALE)),
                     Math.max(1, (int) (mc.getWindow().getHeight() * PORTAL_RENDER_SCALE)));
-
-            doRenderToTarget(entry, door, camera);
+            // 只有 FBO 真正画了才标记 active —— mask / quad / FBO 三者严格同源。
+            // 贴脸时 frustum invalid 会 return false，mask 不打洞，
+            // 避免"洞打了但 quad 内容是残影/清屏色"。
+            if (doRenderToTarget(entry, camera, prepared)) {
+                entry.activeThisFrame = true;
+            }
         }
-        activeDoors.clear();
     }
 
     private boolean dispose(CacheEntry entry) {
@@ -277,6 +294,9 @@ public final class PortalViewManager {
         entry.meshBuffer = null;
         closeQuietly(entry.quadBuffer);
         entry.quadBuffer = null;
+        entry.lastQuadUvs = null;
+        entry.frustumProj = null;
+        entry.portalView = null;
         if (entry.framebuffer != null) {
             entry.framebuffer.destroy();
             entry.framebuffer = null;
@@ -309,48 +329,58 @@ public final class PortalViewManager {
         invalidateRequested = true;
     }
 
-    private void doRenderToTarget(CacheEntry entry, TardisDoorBlockEntity door, CameraRenderState camera) {
+    private boolean doRenderToTarget(CacheEntry entry, CameraRenderState camera, ClientLevel prepared) {
         var target = entry.framebuffer.getTarget();
-        var mc = Minecraft.getInstance();
-
         PortalCamera portalCam = new PortalCamera(
-                door.getBlockPos(), door.getBlockState().getValue(AbstractTardisDoorBlock.FACING),
-                door.getCounterpartPos(), door.getCounterpartFacing(),
-                camera.pos, camera.yRot, camera.xRot
-        );
-
-        // 只用 remoteHole
+                entry.hole, entry.facing,
+                entry.remoteHole, entry.remoteFacing,
+                camera.pos);
         PortalFrustum frustum = new PortalFrustum(portalCam, entry.remoteHole, camera.depthFar);
-
-        // ★ 新增：如果当前视角太偏，导致视锥畸变，直接跳过这一帧
         if (!frustum.valid) {
-            return;
+            return false;
         }
-
+        // 快照本帧的视锥/视图矩阵，主 pass 贴回 quad 时据此计算采样 UV
+        entry.frustumProj = new Matrix4f(frustum.projectionMatrix);
+        entry.portalView = new Matrix4f(portalCam.viewMatrix);
         GpuBufferSlice projectionSlice = portalProjectionBuffer.getBuffer(frustum.projectionMatrix);
-
         try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
                 RenderPassDescriptor.builder(() -> "Tardis Portal Offscreen")
-                        .withColorAttachment(target.getColorTextureView(), Optional.of(new Vector4f(0, 0, 0, 1)))
+                        .withColorAttachment(target.getColorTextureView(),
+                                Optional.of(oppositeClearColor(prepared,
+                                        BlockPos.containing(portalCam.position))))
                         .withDepthAttachment(target.getDepthTextureView(), OptionalDouble.of(0.0))
                         .build())) {
-
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("Projection", projectionSlice);
-
             var transform = RenderSystem.getDynamicUniforms().writeTransform(
                     portalCam.viewMatrix, new Vector4f(1, 1, 1, 1), new Vector3f(), new Matrix4f());
             pass.setUniform("DynamicTransforms", transform);
-
-            var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
-            pass.setUniform("Sampler0", mc.getTextureManager().getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView(), sampler);
-            pass.setUniform("Sampler2", mc.gameRenderer.lightmap(), sampler);
-
+            var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
+            pass.setUniform("Sampler0", Minecraft.getInstance().getTextureManager()
+                    .getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView(), sampler);
+            pass.setUniform("Sampler2", Minecraft.getInstance().gameRenderer.lightmap(), sampler);
             var pipeline = RenderSystem.getCompiledPipeline(RenderPipelines.CUTOUT_BLOCK);
             pass.setPipeline(pipeline);
-
             submitMeshToPass(entry, pass);
         }
+        return true;
+    }
+
+    /**
+     * FBO 清屏色 = 对侧维度雾色（26.3：环境属性系统）。
+     * 烘焙网格 16 格边界渐隐进雾色后硬切边不可见。
+     */
+    private static Vector4f oppositeClearColor(ClientLevel level, BlockPos pos) {
+        Vector3fc fog = level.environmentAttributes()
+                .getValue(EnvironmentAttributes.FOG_COLOR, pos);
+        if (fog.x() <= 1e-4f && fog.y() <= 1e-4f && fog.z() <= 1e-4f) {
+            return new Vector4f(0.04f, 0.04f, 0.06f, 1.0f);
+        }
+        return new Vector4f(
+                Mth.clamp(fog.x(), 0.0f, 1.0f),
+                Mth.clamp(fog.y(), 0.0f, 1.0f),
+                Mth.clamp(fog.z(), 0.0f, 1.0f),
+                1.0f);
     }
 
     private void submitMeshToPass(CacheEntry entry, RenderPass pass) {
@@ -359,7 +389,6 @@ public final class PortalViewManager {
             entry.meshBuffer = buildMeshBuffer(entry.mesh);
         }
         if (entry.meshBuffer == null || entry.meshQuadCount == 0) return;
-
         pass.setVertexBuffer(0, entry.meshBuffer.slice());
         var autoIndices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
         pass.setIndexBuffer(autoIndices.getBuffer(entry.meshQuadCount * 4), autoIndices.type());
@@ -368,17 +397,16 @@ public final class PortalViewManager {
 
     private static GpuBuffer buildMeshBuffer(PortalMesh mesh) {
         if (mesh.isEmpty()) return null;
-
         ByteBufferBuilder byteBuffer = new ByteBufferBuilder(mesh.quads().size() * 4 * 32);
         try {
-            BufferBuilder builder = new BufferBuilder(byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.BLOCK);
+            BufferBuilder builder = new BufferBuilder(
+                    byteBuffer, PrimitiveTopology.QUADS, DefaultVertexFormat.BLOCK);
             for (PortalQuad q : mesh.quads()) {
                 addVertex(builder, q.a());
                 addVertex(builder, q.b());
                 addVertex(builder, q.c());
                 addVertex(builder, q.d());
             }
-
             MeshData data = builder.build();
             if (data == null) return null;
             try {
@@ -407,43 +435,50 @@ public final class PortalViewManager {
                 .setNormal(v.nx(), v.ny(), v.nz());
     }
 
+    /**
+     * 主 pass：把 FBO 画面贴回门洞 quad。
+     *
+     * <p>UV 不再写死 0..1，而是把对面门洞 4 个角点用本帧 FBO 的
+     * 视锥投影变换到 NDC，得到每个角真实的采样位置。玩家正对门中心
+     * 时结果退化为 0..1（与旧写死值一致）；斜视时 quad 对应的是
+     * FBO 里的斜投影梯形区域本身，楔形清屏区与透视畸变一并消除。
+     * GPU 对平面 quad 做透视校正插值，4 角 UV 正确即整幅映射正确
+     * （等价于一次 homography）。
+     *
+     * <p>只渲染 {@code activeThisFrame} 的条目 —— 与
+     * {@link #getActiveHoles()}（mask 消费方）严格同源。
+     */
     public void renderPortalQuad(RenderPass pass) {
         var mc = Minecraft.getInstance();
         if (mc.level == null) return;
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
-        var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
-
+        var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         var projection = RenderSystem.getProjectionMatrixBuffer();
         if (projection != null) pass.setUniform("Projection", projection);
-
         Matrix4f camMat = new Matrix4f(camera.viewRotationMatrix);
         camMat.translate((float) -camera.pos.x, (float) -camera.pos.y, (float) -camera.pos.z);
         var transform = RenderSystem.getDynamicUniforms().writeTransform(
                 camMat, new Vector4f(1, 1, 1, 1), new Vector3f(), new Matrix4f());
         pass.setUniform("DynamicTransforms", transform);
-
-        int winW = mc.getWindow().getWidth();
-        int winH = mc.getWindow().getHeight();
-
         for (CacheEntry entry : cache.values()) {
+            if (!entry.activeThisFrame) continue;
             if (entry.framebuffer == null || entry.hole == null) continue;
-
+            if (entry.frustumProj == null || entry.portalView == null) continue;
+            float[][] uvs = computeQuadUvs(entry);
             if (entry.quadBuffer == null
                     || entry.quadHole != entry.hole
-                    || entry.quadWidth != winW
-                    || entry.quadHeight != winH) {
+                    || quadAlphaOf(entry) != entry.lastQuadAlpha
+                    || uvsChanged(uvs, entry.lastQuadUvs)) {
                 closeQuietly(entry.quadBuffer);
-                entry.quadBuffer = buildQuadBuffer(entry.hole);
+                entry.quadBuffer = buildQuadBuffer(entry.hole, entry.fadeAlpha, uvs);
                 entry.quadHole = entry.hole;
-                entry.quadWidth = winW;
-                entry.quadHeight = winH;
+                entry.lastQuadAlpha = quadAlphaOf(entry);
+                entry.lastQuadUvs = flattenUvs(uvs);
             }
             if (entry.quadBuffer == null) continue;
-
             var target = entry.framebuffer.getTarget();
             pass.setUniform("Sampler0", target.getColorTextureView(), sampler);
             pass.setPipeline(RenderSystem.getCompiledPipeline(PORTAL_PLANE));
-
             pass.setVertexBuffer(0, entry.quadBuffer.slice());
             var autoIndices = RenderSystem.getSequentialBuffer(PrimitiveTopology.QUADS);
             pass.setIndexBuffer(autoIndices.getBuffer(4), autoIndices.type());
@@ -451,16 +486,67 @@ public final class PortalViewManager {
         }
     }
 
-    private static GpuBuffer buildQuadBuffer(PortalDoorHole.DoorHole hole) {
+    /**
+     * 计算门洞 4 个角对应的 FBO 采样 UV。
+     *
+     * <p>角对应关系（由 180° 旋转穿门映射推导）：
+     * 本地 tl ↔ 远端 tr、tr ↔ tl、br ↔ bl、bl ↔ br。
+     * 虚拟相机从远端门洞背面朝 fB 看，远端 tr 在 FBO 图像左上，对应本地 tl。
+     * 返回下标：0=tl, 1=tr, 2=br, 3=bl。
+     */
+    private static float[][] computeQuadUvs(CacheEntry entry) {
+        Matrix4f vp = new Matrix4f(entry.frustumProj).mul(entry.portalView);
+        Vec3[] remoteCorners = {
+                entry.remoteHole.tr(),  // ↔ 本地 tl
+                entry.remoteHole.tl(),  // ↔ 本地 tr
+                entry.remoteHole.bl(),  // ↔ 本地 br
+                entry.remoteHole.br()   // ↔ 本地 bl
+        };
+        float[][] uvs = new float[4][2];
+        Vector3f p = new Vector3f();
+        for (int i = 0; i < 4; i++) {
+            Vec3 c = remoteCorners[i];
+            p.set((float) c.x, (float) c.y, (float) c.z);
+            // transformProject 含透视除法，得到 NDC；reversed-Z 不影响 x/y
+            vp.transformProject(p);
+            uvs[i][0] = Mth.clamp(p.x * 0.5f + 0.5f, 0.0f, 1.0f);
+            uvs[i][1] = Mth.clamp(p.y * 0.5f + 0.5f, 0.0f, 1.0f);
+        }
+        return uvs;
+    }
+
+    private static boolean uvsChanged(float[][] uvs, float[] last) {
+        if (last == null) return true;
+        int k = 0;
+        for (float[] uv : uvs) {
+            if (uv[0] != last[k++] || uv[1] != last[k++]) return true;
+        }
+        return false;
+    }
+
+    private static float[] flattenUvs(float[][] uvs) {
+        float[] flat = new float[8];
+        for (int i = 0; i < 4; i++) {
+            flat[i * 2] = uvs[i][0];
+            flat[i * 2 + 1] = uvs[i][1];
+        }
+        return flat;
+    }
+
+    private static float quadAlphaOf(CacheEntry entry) {
+        return entry.fadeAlpha;
+    }
+
+    private static GpuBuffer buildQuadBuffer(PortalDoorHole.DoorHole hole, float alpha, float[][] uvs) {
         ByteBufferBuilder bb = new ByteBufferBuilder(256);
         try {
-            BufferBuilder builder = new BufferBuilder(bb, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-
-            putQuadVertex(builder, hole.tl(), 0f, 1f);
-            putQuadVertex(builder, hole.bl(), 0f, 0f);
-            putQuadVertex(builder, hole.br(), 1f, 0f);
-            putQuadVertex(builder, hole.tr(), 1f, 1f);
-
+            BufferBuilder builder = new BufferBuilder(
+                    bb, PrimitiveTopology.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+            int color = ARGB.color((int) (alpha * 255.0f), 255, 255, 255);
+            putQuadVertex(builder, hole.tl(), uvs[0][0], uvs[0][1], color);
+            putQuadVertex(builder, hole.bl(), uvs[3][0], uvs[3][1], color);
+            putQuadVertex(builder, hole.br(), uvs[2][0], uvs[2][1], color);
+            putQuadVertex(builder, hole.tr(), uvs[1][0], uvs[1][1], color);
             MeshData meshData = builder.build();
             if (meshData == null) return null;
             try {
@@ -480,16 +566,33 @@ public final class PortalViewManager {
         }
     }
 
-    private static void putQuadVertex(BufferBuilder builder, Vec3 worldPos, float u, float v) {
+    private static void putQuadVertex(BufferBuilder builder, Vec3 worldPos, float u, float v, int color) {
         builder.addVertex((float) worldPos.x, (float) worldPos.y, (float) worldPos.z)
                 .setUv(u, v)
-                .setColor(0xFFFFFFFF);
+                .setColor(color);
     }
 
+    /**
+     * mask 消费的本帧孔洞集合。
+     *
+     * <p>规则：
+     * <ul>
+     * <li>只含 {@code activeThisFrame} 的门 —— 与 quad 渲染严格同源，
+     * 杜绝"mask 了却没画 quad"的黑洞门；</li>
+     * <li>fade 进行中（alpha &lt; 1）摘出 mask：让洞后的真实地形透出来，
+     * 配合半透明 quad 形成正确的淡入效果。</li>
+     * </ul>
+     *
+     * <p><b>调用顺序要求</b>：必须在同一帧的
+     * {@link #renderOffscreenPass()} 之后调用（mask 在地形 solid HEAD
+     * 阶段消费本集合），否则拿到的是上一帧的可见集合。
+     */
     public Collection<PortalDoorHole.DoorHole> getActiveHoles() {
         List<PortalDoorHole.DoorHole> holes = new ArrayList<>(cache.size());
         for (CacheEntry entry : cache.values()) {
-            if (entry.hole != null) holes.add(entry.hole);
+            if (entry.activeThisFrame && entry.hole != null && entry.fadeAlpha >= 0.999f) {
+                holes.add(entry.hole);
+            }
         }
         return holes;
     }
