@@ -19,6 +19,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.chunk.DataLayer;
+import net.minecraft.world.level.chunk.LevelChunk;
+import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 
@@ -30,42 +32,37 @@ import java.util.UUID;
  * STP 客户端状态机。
  *
  * <h2>目标</h2>
- * 让穿门时<b>不出现加载界面、不出现地形空洞</b>：需要的一切在玩家跨过门前就已经
- * 在客户端准备完毕。
+ * 穿门时不出现加载界面、不出现地形空洞：需要的一切在玩家跨过门前就已就绪。
  *
  * <h2>三个阶段</h2>
  * <ol>
- *   <li><b>prepare</b>：服务端在玩家靠近门时下发目标维度信息与区块数据。
- *       客户端据此预构建一个 {@link ClientLevel}，并把这些区块直接灌进它的
- *       {@code ClientChunkCache}。</li>
- *   <li><b>换场</b>：玩家真的跨过门时，服务端发来原版的维度切换包
- *       （{@code handleRespawn}）。Mixin 拦截其中新建 {@code ClientLevel} 与
- *       {@code ClientLevelData} 的两处调用，换成我们预构建的实例，
- *       并抑制加载界面。</li>
- *   <li><b>复用</b>：预构建实例被换入后立即失效，等待下一轮 prepare。</li>
+ * <li><b>prepare</b>：服务端在玩家靠近门时下发目标维度信息与区块数据。客户端据此
+ *     预构建一个 {@link ClientLevel}，并把区块（含光照）灌进它的 {@code ClientChunkCache}
+ *     与 {@code LevelLightEngine}。</li>
+ * <li><b>换场</b>：玩家跨门时服务端发来原版维度切换包（{@code handleRespawn}），
+ *     Mixin 拦截其中新建 {@code ClientLevel} 与 {@code ClientLevelData} 的两处调用，
+ *     换成预构建实例，并抑制加载界面。</li>
+ * <li><b>复用</b>：预构建实例被换入后立即失效，等待下一轮 prepare。</li>
  * </ol>
  *
- * <h2>本版修掉的结构问题</h2>
- * <ul>
- *   <li><b>维度守卫</b>：旧版只要"会话 ID 相同"就复用预构建实例，从不校验维度。
- *       预构建的是 A 维度、实际要切到 B 时，会把 A 的世界换进去 ——
- *       表现为穿门后看到错误的场景。现在按 {@code (sessionId, dimensionId,
- *       dimensionTypeId)} 三者匹配，任一不同就丢弃重建。</li>
- *   <li><b>过期丢弃</b>：prepare 后玩家没有真的穿门（转身走开 / 掉线 / 被传送走），
- *       预构建实例会一直挂着，并可能在很久以后被错误换入。现在带时间戳，
- *       超过 {@link StpConfig#PREPARE_TIMEOUT_MS} 自动失效。</li>
- *   <li><b>光照</b>：旧版把区块数据灌进去后完全丢弃光照数据，导致门后一片漆黑，
- *       要等服务端后续的光照更新才亮起来。现在按原版路径把天空光 / 方块光
- *       一并写入光照引擎。</li>
- *   <li><b>区块可见性</b>：写入区块后标记渲染脏位，避免"数据到了但没重绘"。</li>
- * </ul>
+ * <h2>光照落库的完整链条（对齐原版 {@code handleLevelChunkWithLight}）</h2>
+ * <ol>
+ * <li>{@code replaceWithPacketData} 写入方块；</li>
+ * <li>{@code queueSectionData} 把光照层<b>入队</b>（不是落库！）；</li>
+ * <li>{@code updateSectionStatus} 登记 section 非空状态——这是传播引擎
+ *     处理该 section 的前提，漏掉则引擎当它是空的直接跳过（= 门内全黑）；</li>
+ * <li>{@code setLightEnabled} 打开该区块的光照；</li>
+ * <li>{@code runLightUpdates()} 泵干任务队列——预构建 level 是休眠的，
+ *     没有原版的每 tick 泵送，必须手动排空，光照才真正落进存储。</li>
+ * </ol>
+ * 任何一环缺失，表现都是方块几何正常但人造光源不亮。
  */
 public final class StpClientState {
 
     private StpClientState() {}
 
     // ============================================================
-    //                      预构建实例
+    // 预构建实例
     // ============================================================
 
     /** 一份预构建结果：与其生效条件绑在一起，不一致就整体作废。 */
@@ -78,11 +75,9 @@ public final class StpClientState {
         final ClientLevel.ClientLevelData levelData;
         long createdAtMs;
 
-        Prepared(UUID sessionId,
-                 ResourceKey<Level> dimension,
+        Prepared(UUID sessionId, ResourceKey<Level> dimension,
                  ResourceKey<DimensionType> dimensionType,
-                 ClientLevel level,
-                 ClientLevel.ClientLevelData levelData) {
+                 ClientLevel level, ClientLevel.ClientLevelData levelData) {
             this.sessionId = sessionId;
             this.dimension = dimension;
             this.dimensionType = dimensionType;
@@ -105,7 +100,7 @@ public final class StpClientState {
      * 取当前预构建的对侧 ClientLevel（不消费）。门户渲染专用。
      *
      * <p>对偶语义：站在门外 → prepared 是内饰维度；站在门内 → prepared 是外维度。
-     * 所以「prepared 就是对面」这个不变量恒成立，无需额外维度查询。
+     * 「prepared 就是对面」这个不变量恒成立，无需额外维度查询。
      * 返回 null 表示当前没有可用的对侧数据（门未接近 / 已消费 / 已过期），门户隐藏。
      */
     public static ClientLevel portalLevel() {
@@ -117,11 +112,11 @@ public final class StpClientState {
 
     /** 抑制下一次加载界面的意图。 */
     private static volatile boolean suppressNextLoading = false;
-    /** 服务端明确要求"立即进入"时置位，与 suppressNextLoading 配合。 */
+    /** 服务端明确要求“立即进入”时置位，与 suppressNextLoading 配合。 */
     private static volatile boolean skipLoadingThisRespawn = false;
 
     // ============================================================
-    //                      prepare 包
+    // prepare 包
     // ============================================================
 
     public static void onPrepare(StpPackets.StpPrepareS2C payload) {
@@ -138,7 +133,7 @@ public final class StpClientState {
         if (reusable) {
             StpConfig.debug("prepare: reusing prepared level for {}", payload.dimensionId());
         } else {
-            if (current != null && !reusable) {
+            if (current != null) {
                 StpConfig.debug("prepare: dropping prepared level (session/dim/type mismatch)");
             }
             prepared = null;
@@ -166,26 +161,21 @@ public final class StpClientState {
                 ResourceKey.create(Registries.DIMENSION_TYPE, payload.dimensionTypeId());
         var holderOpt = dimTypeReg.get(dimTypeKey);
         if (holderOpt.isEmpty()) {
-            StpConfig.warn("dimension type {} not found; cannot prebuild",
-                    payload.dimensionTypeId());
+            StpConfig.warn("dimension type {} not found; cannot prebuild", payload.dimensionTypeId());
             return false;
         }
 
         ResourceKey<Level> dimKey = ResourceKey.create(Registries.DIMENSION, payload.dimensionId());
-
         ClientLevel.ClientLevelData levelData = new ClientLevel.ClientLevelData(
-                mc.level != null ? mc.level.getDifficulty() : Difficulty.NORMAL,
-                false, false);
+                mc.level != null ? mc.level.getDifficulty() : Difficulty.NORMAL, false, false);
 
         int chunkRadius = ((ClientPacketListenerAccessor) conn).doctor_m$getServerChunkRadius();
         int simDist = ((ClientPacketListenerAccessor) conn).doctor_m$getServerSimulationDistance();
 
         try {
-            ClientLevel level = new ClientLevel(
-                    conn, levelData, dimKey, holderOpt.get(),
+            ClientLevel level = new ClientLevel(conn, levelData, dimKey, holderOpt.get(),
                     chunkRadius, simDist, mc.levelExtractor, false,
                     payload.biomeZoomSeed(), payload.seaLevel());
-
             prepared = new Prepared(payload.sessionId(), dimKey, dimTypeKey, level, levelData);
             StpConfig.debug("prebuilt ClientLevel for {} (chunkRadius={}, simDist={})",
                     payload.dimensionId(), chunkRadius, simDist);
@@ -198,10 +188,10 @@ public final class StpClientState {
     }
 
     // ============================================================
-    //                      区块数据
+    // 区块数据
     // ============================================================
 
-    /** 一个已解码、等待写入 ClientChunkCache 的区块。 */
+    /** 一个已解码、等待写入 ClientChunkCache 的区块（含光照）。 */
     private record PendingChunk(int x, int z,
                                 ClientboundLevelChunkPacketData data,
                                 ClientboundLightUpdatePacketData light) {}
@@ -209,27 +199,18 @@ public final class StpClientState {
     /**
      * 待写入队列。
      *
-     * <p>为什么要排队而不是收到就写：区块数据的<b>反序列化</b>发生在网络线程
-     * （不占渲染帧），但写入 {@code ClientChunkCache} 必须回到主线程。一次维度切换
-     * 会涌来几百个区块，如果在同一帧里全部写入，主线程就会停住 ——
-     * 这正是"传送那一瞬间的卡顿"的主要来源之一。
-     *
-     * <p>把写入按 {@link StpConfig#CLIENT_APPLY_PER_TICK} 摊到多帧上，
-     * 用几帧的微小延迟换取帧率平稳。
+     * <p>区块的反序列化发生在网络线程（不占渲染帧），但写入 {@code ClientChunkCache}
+     * 与光照引擎必须回到主线程。一次维度切换会涌来几百个区块，同一帧全写会让主线程
+     * 停住——正是“传送瞬间卡顿”的主要来源之一。按 {@link StpConfig#CLIENT_APPLY_PER_TICK}
+     * 摊到多帧，用几帧的微小延迟换取帧率平稳。
      */
     private static final java.util.concurrent.ConcurrentLinkedQueue<PendingChunk> PENDING =
             new java.util.concurrent.ConcurrentLinkedQueue<>();
 
-    /**
-     * 已写入预构建 level 的区块版本号。
-     *
-     * <p>预构建 level 是"边收边写"的：一次维度切换会分很多帧灌入区块。门户网格
-     * 缓存必须知道内容变过，否则会在前几帧烘焙出一张残缺的网格并一直沿用。
-     * 每写入一个区块自增一次，渲染端按版本号决定是否重烘焙。
-     */
+    /** 已写入预构建 level 的区块版本号（单调递增）。 */
     private static volatile int chunkRevision;
 
-    /** 当前预构建 level 的区块版本号（单调递增）。 */
+    /** 当前预构建 level 的区块版本号，渲染端按它决定是否重烘焙门户网格。 */
     public static int chunkRevision() {
         return chunkRevision;
     }
@@ -260,13 +241,10 @@ public final class StpClientState {
 
         try {
             RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(
-                    Unpooled.wrappedBuffer(payload.packetData()),
-                    conn.registryAccess());
-
+                    Unpooled.wrappedBuffer(payload.packetData()), conn.registryAccess());
             ClientboundLevelChunkWithLightPacket pkt =
                     ClientboundLevelChunkWithLightPacket.STREAM_CODEC.decode(buf);
-
-            // 队列满了就丢最旧的：积压说明网络比主线程快得多，保留最新的更有价值。
+            // 队列满了丢最旧的：积压说明网络比主线程快得多，保留最新的更有价值。
             while (PENDING.size() >= StpConfig.CLIENT_QUEUE_LIMIT) {
                 PENDING.poll();
             }
@@ -277,12 +255,14 @@ public final class StpClientState {
         }
     }
 
+    /** 光照泵送的防御上限：正常几轮就排空，防异常数据导致死循环。 */
+    private static final int LIGHT_PUMP_GUARD = 100;
+
     /**
      * 由客户端主线程每 tick 调用：限量写入待处理队列。
      *
-     * <p>必须在预构建实例<b>尚未换入</b>时就完成写入，所以这里写进的是
-     * {@link Prepared#level} 自己的区块缓存 —— 换场时整个 level 被换入，
-     * 区块自然就位。
+     * <p>写入的是 {@link Prepared#level} 自己的缓存——换场时整个 level 被换入，
+     * 区块与光照自然就位。每批写完后泵干光照引擎（见 {@link #pumpLightEngine}）。
      */
     public static void tick() {
         if (PENDING.isEmpty()) return;
@@ -298,23 +278,16 @@ public final class StpClientState {
             return;
         }
 
-        Minecraft mc = Minecraft.getInstance();
-
         int applied = 0;
         PendingChunk chunk;
-        while (applied < StpConfig.CLIENT_APPLY_PER_TICK
-                && (chunk = PENDING.poll()) != null) {
-
+        while (applied < StpConfig.CLIENT_APPLY_PER_TICK && (chunk = PENDING.poll()) != null) {
             try {
                 target.level.getChunkSource()
                         .replaceWithPacketData(chunk.x(), chunk.z(), chunk.data());
-
                 applyLight(target.level, chunk.light(), chunk.x(), chunk.z());
-
-                for (int y = target.level.getMinSectionY();
-                     y <= target.level.getMaxSectionY(); y++) {
-                    mc.levelExtractor.setSectionDirty(chunk.x(), y, chunk.z());
-                }
+                // 原版 enableChunkLight 等价物：登记 section 非空状态 + 标记相邻一圈脏。
+                // 没有这步，光照引擎把 section 当空处理，传播被整体跳过（= 门内全黑）。
+                enableChunkLight(target.level, chunk.x(), chunk.z());
             } catch (Throwable t) {
                 StpConfig.warn("applying chunk {}/{} failed: {}",
                         chunk.x(), chunk.z(), t.toString());
@@ -324,71 +297,126 @@ public final class StpClientState {
         }
 
         if (applied > 0) {
-            StpConfig.debug("applied {} chunk(s), {} still pending", applied, PENDING.size());
+            // 光照数据必须在这批区块全部写入（含 section 登记）之后统一泵干一次：
+            // queueSectionData 只入队，落库靠 runLightUpdates（见 pumpLightEngine）。
+            pumpLightEngine(target.level);
+            StpConfig.debug("applied {} chunk(s), {} still pending",
+                    applied, PENDING.size());
         }
+    }
+
+    /**
+     * 泵干预构建 level 的光照引擎任务队列。
+     *
+     * <p>为什么必须手动泵：预构建 level 休眠期间没有被换进 {@code Minecraft.level}，
+     * 没人 tick 它，原版依赖每 tick 光照更新来消化 {@code queueSectionData}
+     * 的挂起数据。不泵的话光照永远躺在队列里，{@code getLightColor} 查到的存储
+     * 恒为空——门内一片漆黑。
+     *
+     * <p>开销可控：服务端发来的 DataLayer 是已传播完成的终态，客户端这边主要
+     * 工作是把挂起的数据层提交进存储，毫秒级，且摊在 CLIENT_APPLY_PER_TICK
+     * 的节奏里每批只跑一次。
+     */
+    private static void pumpLightEngine(ClientLevel level) {
+        LevelLightEngine engine = level.getChunkSource().getLightEngine();
+        int guard = 0;
+        while (engine.runLightUpdates() > 0) {
+            if (++guard >= LIGHT_PUMP_GUARD) {
+                StpConfig.warn("light engine did not settle after {} pump rounds", guard);
+                break;
+            }
+        }
+    }
+
+    /**
+     * 原版 {@code ClientPacketListener.enableChunkLight} 等价物。
+     *
+     * <p>把区块各 section 的“非空”状态登记进光照引擎——这是传播引擎处理
+     * 该 section 的前提条件。原版在 {@code handleLevelChunkWithLight} 里于
+     * {@code applyLightData} 之后、区块数据写入之后调用它，这里保持相同顺序。
+     *
+     * <p><b>必须在 {@link #pumpLightEngine} 之前调用</b>：登记本身只改引擎的
+     * 状态位，但登记结果与队列里的光照数据在 {@code runLightUpdates} 时一起
+     * 生效——先登记后泵，顺序才与原版 {@code queueLightUpdate} 回调一致。
+     */
+    private static void enableChunkLight(ClientLevel level, int x, int z) {
+        LevelLightEngine lightEngine = level.getChunkSource().getLightEngine();
+        LevelChunk chunk = level.getChunkSource().getChunk(x, z, false);
+        if (chunk == null) return;
+
+        LevelChunkSection[] sections = chunk.getSections();
+        ChunkPos chunkPos = new ChunkPos(x, z);
+        for (int sectionIndex = 0; sectionIndex < sections.length; ++sectionIndex) {
+            int sectionY = level.getSectionYFromSectionIndex(sectionIndex);
+            lightEngine.updateSectionStatus(
+                    SectionPos.of(chunkPos, sectionY),
+                    sections[sectionIndex].hasOnlyAir());
+        }
+        // 原版照搬：相邻一圈一起标脏，让跨界面的光照/网格在边缘处正确重算。
+        // 这同时覆盖了渲染端对“该区块刚写入”的可见性通知，替代旧的逐 section
+        // setSectionDirty 循环（原版也只用这一个调用）。
+        level.setSectionRangeDirty(x - 1, level.getMinSectionY(), z - 1,
+                x + 1, level.getMaxSectionY(), z + 1);
     }
 
     /**
      * 把区块附带的光照数据写入光照引擎。
      *
-     * <p>照原版 {@code ClientPacketListener#handleLevelChunkWithLight} 的做法：
-     * 逐层写入天空光与方块光，把空的层标记为空，最后打开这个区块的光照传播。
+     * <p>照原版 {@code ClientPacketListener#handleLevelChunkWithLight → applyLightData}
+     * 的做法：逐层写入天空光与方块光，空层标记为空，最后打开这个区块的光照传播。
+     * 注意此时数据只是<b>入队</b>——真正的落库由 {@link #pumpLightEngine} 完成。
      */
-    private static void applyLight(ClientLevel level,
-                                   ClientboundLightUpdatePacketData light,
+    private static void applyLight(ClientLevel level, ClientboundLightUpdatePacketData light,
                                    int x, int z) {
         if (light == null) return;
-
         LevelLightEngine lightEngine = level.getChunkSource().getLightEngine();
         ChunkPos chunkPos = new ChunkPos(x, z);
-
-        applyLightLayer(lightEngine, LightLayer.SKY,
-                chunkPos,
-                light.skyYMask(),
-                light.emptySkyYMask(),
-                light.skyUpdates());
-
-        applyLightLayer(lightEngine, LightLayer.BLOCK,
-                chunkPos,
-                light.blockYMask(),
-                light.emptyBlockYMask(),
-                light.blockUpdates());
-
+        applyLightLayer(lightEngine, LightLayer.SKY, chunkPos,
+                light.skyYMask(), light.emptySkyYMask(), light.skyUpdates());
+        applyLightLayer(lightEngine, LightLayer.BLOCK, chunkPos,
+                light.blockYMask(), light.emptyBlockYMask(), light.blockUpdates());
         lightEngine.setLightEnabled(chunkPos, true);
     }
 
-    private static void applyLightLayer(LevelLightEngine engine,
-                                        LightLayer layer,
-                                        ChunkPos pos,
-                                        BitSet filledMask,
-                                        BitSet emptyMask,
-                                        List<byte[]> updates) {
+    /**
+     * 写入单层光照（对应原版 {@code ClientPacketListener.readSectionList}）。
+     *
+     * <p><b>Y 公式（已按 26.3 反编译核对）</b>：光照包 bitset 的位索引以
+     * {@code minLightSection} 为基准，原版 {@code readSectionList} 的
+     * {@code sectionY = getMinLightSection() + sectionIndex}，与本实现一致，
+     * 不需要再核对。维度 minY ≥ 0 时 minLightSection 的补偿自然归零，无副作用。
+     *
+     * <p>与原版的两处细节对齐：数据层先 {@code clone()} 再入队（防 buffer
+     * 复用被改）；空层用 {@code new DataLayer()}（空的非 null 层），不是 null。
+     */
+    private static void applyLightLayer(LevelLightEngine engine, LightLayer layer, ChunkPos pos,
+                                        BitSet filledMask, BitSet emptyMask, List<byte[]> updates) {
         if (filledMask == null || emptyMask == null || updates == null) return;
-
+        int minLightSection = engine.getMinLightSection();
         int index = 0;
         for (int y = filledMask.nextSetBit(0); y >= 0; y = filledMask.nextSetBit(y + 1)) {
             if (index >= updates.size()) break;
             byte[] data = updates.get(index++);
             engine.queueSectionData(layer,
-                    SectionPos.of(pos.x(), y, pos.z()),
-                    new DataLayer(data));
+                    SectionPos.of(pos.x(), y + minLightSection, pos.z()),
+                    new DataLayer(data.clone()));
         }
         for (int y = emptyMask.nextSetBit(0); y >= 0; y = emptyMask.nextSetBit(y + 1)) {
             engine.queueSectionData(layer,
-                    SectionPos.of(pos.x(), y, pos.z()),
-                    null);
+                    SectionPos.of(pos.x(), y + minLightSection, pos.z()),
+                    new DataLayer());
         }
     }
 
     // ============================================================
-    //                      换场（供 Mixin 调用）
+    // 换场（供 Mixin 调用）
     // ============================================================
 
     /**
      * 取出与目标维度匹配的预构建 {@link ClientLevel}，并使其立即失效。
      *
-     * <p><b>维度守卫</b>：只有当预构建实例的维度与这次换场的目标维度一致时才返回它。
-     * 不一致就丢弃并返回 {@code null}，让原版照常新建 —— 宁可多一次正常加载，
+     * <p><b>维度守卫</b>：只有预构建实例的维度与这次换场的目标维度一致时才返回它。
+     * 不一致就丢弃并返回 {@code null} 让原版照常新建——宁可多一次正常加载，
      * 也不能把错误的世界换给玩家。
      *
      * @param requestedDimension 原版这次想切换到的维度
@@ -396,7 +424,6 @@ public final class StpClientState {
     public static ClientLevel consumePreparedLevel(ResourceKey<Level> requestedDimension) {
         Prepared p = prepared;
         if (p == null) return null;
-
         if (p.isExpired(System.currentTimeMillis())) {
             StpConfig.debug("prepared level for {} expired, discarded",
                     p.dimension.identifier());
@@ -410,7 +437,6 @@ public final class StpClientState {
             prepared = null;
             return null;
         }
-
         prepared = null;
         StpConfig.debug("handing over prepared ClientLevel for {}",
                 p.dimension.identifier());
@@ -418,7 +444,7 @@ public final class StpClientState {
     }
 
     // ============================================================
-    //                      门户渲染（BOTI）访问
+    // 门户渲染（BOTI）访问
     // ============================================================
 
     /**
@@ -434,8 +460,7 @@ public final class StpClientState {
 
     /**
      * 取指定维度的预构建 {@link ClientLevel}（不消费），供门户渲染读取方块 / 光照。
-     *
-     * <p>维度不匹配或尚无预构建实例时返回 {@code null} —— 门户视图应当隐藏。
+     * 维度不匹配或尚无预构建实例时返回 {@code null}——门户视图应当隐藏。
      */
     public static ClientLevel portalLevelFor(net.minecraft.resources.Identifier dimensionId) {
         Prepared p = prepared;
