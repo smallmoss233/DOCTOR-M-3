@@ -332,14 +332,13 @@ public final class PortalViewManager {
     private boolean doRenderToTarget(CacheEntry entry, CameraRenderState camera, ClientLevel prepared) {
         var target = entry.framebuffer.getTarget();
         PortalCamera portalCam = new PortalCamera(
-                entry.hole, entry.facing,
-                entry.remoteHole, entry.remoteFacing,
-                camera.pos);
+                entry.hole, entry.facing, entry.remoteHole, entry.remoteFacing,
+                effectiveEyePos(camera));
         PortalFrustum frustum = new PortalFrustum(portalCam, entry.remoteHole, camera.depthFar);
         if (!frustum.valid) {
             return false;
         }
-        // 快照本帧的视锥/视图矩阵，主 pass 贴回 quad 时据此计算采样 UV
+
         entry.frustumProj = new Matrix4f(frustum.projectionMatrix);
         entry.portalView = new Matrix4f(portalCam.viewMatrix);
         GpuBufferSlice projectionSlice = portalProjectionBuffer.getBuffer(frustum.projectionMatrix);
@@ -355,15 +354,44 @@ public final class PortalViewManager {
             var transform = RenderSystem.getDynamicUniforms().writeTransform(
                     portalCam.viewMatrix, new Vector4f(1, 1, 1, 1), new Vector3f(), new Matrix4f());
             pass.setUniform("DynamicTransforms", transform);
-            var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
+            var terrainSampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
             pass.setUniform("Sampler0", Minecraft.getInstance().getTextureManager()
-                    .getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView(), sampler);
-            pass.setUniform("Sampler2", Minecraft.getInstance().gameRenderer.lightmap(), sampler);
+                    .getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView(), terrainSampler);
+            var lightSampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
+            pass.setUniform("Sampler2", Minecraft.getInstance().gameRenderer.lightmap(), lightSampler);
             var pipeline = RenderSystem.getCompiledPipeline(RenderPipelines.CUTOUT_BLOCK);
             pass.setPipeline(pipeline);
             submitMeshToPass(entry, pass);
         }
         return true;
+    }
+
+    /**
+     * 主 pass 的有效眼位。26.3 中视角摇晃（bob）以视图空间平移形式
+     * 乘进投影矩阵（GameRenderer.renderLevel → bobView），等价于相机
+     * 实际位于 pos − R⁻¹·t。FBO 视锥必须用这个眼位，否则门内画面
+     * 相对门框存在一个 bob 幅度的错位，贴门时被景深放大成剧烈晃动。
+     */
+    private static Vec3 effectiveEyePos(CameraRenderState camera) {
+        var opts = Minecraft.getInstance().gameRenderer.gameRenderState().optionsRenderState;
+        float tX = 0.0F, tY = 0.0F;
+        if (opts.bobView && camera.entityRenderState.isPlayer) {
+            float walkDist = camera.entityRenderState.backwardsInterpolatedWalkDistance;
+            float bob = camera.entityRenderState.bob;
+
+            tX = Mth.sin(walkDist * (float) Math.PI) * bob * 0.5F;
+            tY = -Math.abs(Mth.cos(walkDist * (float) Math.PI)) * bob;
+        }
+        if (tX == 0.0F && tY == 0.0F) {
+            return camera.pos;
+        }
+
+        Vector3f worldBob = camera.viewRotationMatrix
+                .transpose(new Matrix4f())
+                .transformPosition(new Vector3f(tX, tY, 0.0F));
+        return new Vec3(camera.pos.x - worldBob.x,
+                camera.pos.y - worldBob.y,
+                camera.pos.z - worldBob.z);
     }
 
     /**
