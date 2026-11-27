@@ -71,9 +71,9 @@ public final class PortalFrustum {
     private static Matrix4f frustumReversedZ(float l, float r, float b, float t, float n, float f) {
         Matrix4f m = new Matrix4f();
         m.m00(2f * n / (r - l));
-        m.m02((r + l) / (r - l));
+        m.m20((r + l) / (r - l));
         m.m11(2f * n / (t - b));
-        m.m12((t + b) / (t - b));
+        m.m21((t + b) / (t - b));
         m.m22(n / (f - n));
         m.m32(f * n / (f - n));
         m.m23(-1f);
