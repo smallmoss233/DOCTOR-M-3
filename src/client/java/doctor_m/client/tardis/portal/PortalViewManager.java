@@ -14,6 +14,7 @@ import com.mojang.renderpearl.api.textures.FilterMode;
 import doctor_m.block.AbstractTardisDoorBlock;
 import doctor_m.block.entity.TardisDoorBlockEntity;
 import doctor_m.client.stp.StpClientState;
+import doctor_m.stp.StpConfig;
 import doctor_m.tardis.appearance.TardisAppearance;
 import doctor_m.tardis.appearance.TardisAppearanceRegistry;
 import doctor_m.tardis.appearance.TardisAsset;
@@ -95,6 +96,12 @@ public final class PortalViewManager {
         PortalDoorHole.DoorHole quadHole;
         float lastQuadAlpha = -1f;
 
+        /**
+         * 本帧 quad 采样 FBO 是否接近 1:1（决定 NEAREST/LINEAR，
+         * 见 renderOffscreenPass 的 resize 处判定）。默认 false = LINEAR，安全。
+         */
+        boolean quadSamplerNearest;
+
         /** 上一帧贴回 quad 用的 UV（压平为 [u0,v0,u1,v1,...]），用于判断是否需要重建 quad buffer。 */
         float[] lastQuadUvs;
 
@@ -120,6 +127,19 @@ public final class PortalViewManager {
     }
 
     private static final float PORTAL_RENDER_SCALE = 1.0f;
+
+    /**
+     * FBO 尺寸不再固定为窗口大小，而是每帧按门洞 quad 在主屏幕上的
+     * 完整投影包围盒自适应（见 {@link #quadFootprintPx}）：
+     * 远看 quad 小 → FBO 缩小省填充率；贴近 quad 溢出屏幕 → FBO 放大到
+     * 完整投影尺寸，可见区域恢复 1:1 采样（贴脸发糊的根因修复）。
+     * 尺寸按 FBO_QUANTUM 量化，避免每帧重分配纹理。
+     */
+    private static final int FBO_MIN_DIM = 128;
+    private static final int FBO_MAX_DIM = 4096;
+    /** 量化步长：64 比 128 更细，走近过程中锐度跳变更平滑。 */
+    private static final int FBO_QUANTUM = 64;
+
     /** 单帧最多同时渲染的门户数量（按离相机距离截断，与 mask 共用）。 */
     private static final int MAX_ACTIVE_PER_FRAME = 4;
     private static final long MESH_REBUILD_INTERVAL_MS = 200L;
@@ -336,9 +356,19 @@ public final class PortalViewManager {
             if (entry.framebuffer == null) {
                 entry.framebuffer = new PortalFramebuffer();
             }
-            entry.framebuffer.resize(
-                    Math.max(1, (int) (mc.getWindow().getWidth() * PORTAL_RENDER_SCALE)),
-                    Math.max(1, (int) (mc.getWindow().getHeight() * PORTAL_RENDER_SCALE)));
+            // FBO 尺寸 = 门洞 quad 本帧在主屏幕上的完整投影包围盒。
+            // 固定窗口大小时贴脸会被放大采样（发糊根因）；自适应后可见区域 1:1。
+            // offscreen 投影是分辨率无关的（NDC），改尺寸不影响 quad UV 计算。
+            int[] fbo = quadFootprintPx(entry, camera);
+            entry.framebuffer.resize(fbo[0], fbo[1]);
+            // FBO 与 quad 实际占用接近 1:1 时用 NEAREST：消除双线性在亚像素
+            // 未对齐时的重采样软化（糊感的直接来源之一）；明显缩采样时退回
+            // LINEAR，避免 NEAREST 丢像素产生的行走闪烁。
+            // fbo[2]/fbo[3] 是量化前的原始需求尺寸，比值即真实缩放率。
+            float ratioW = fbo[2] > 0 ? (float) fbo[0] / fbo[2] : 1f;
+            float ratioH = fbo[3] > 0 ? (float) fbo[1] / fbo[3] : 1f;
+            entry.quadSamplerNearest = ratioW >= 0.8f && ratioW <= 1.35f
+                    && ratioH >= 0.8f && ratioH <= 1.35f;
 
             // 只有 FBO 真正画了才标记 active —— mask / quad / FBO 三者严格同源。
             // 贴脸时 frustum invalid 会 return false，mask 不打洞，
@@ -347,6 +377,107 @@ public final class PortalViewManager {
                 entry.activeThisFrame = true;
             }
         }
+    }
+
+    /**
+     * 门洞 quad 在主屏幕上的完整投影包围盒（像素），用作 FBO 渲染分辨率。
+     *
+     * <p>为什么必须跟随 quad 而不是固定窗口大小：quad 采样的是完整 FBO
+     * （UV 恒为 0..1，由 PortalFrustum 的构造保证——门洞角点永远投影到视锥
+     * 边缘）。玩家贴近时门洞的屏幕投影会溢出屏幕，可见区域只对应 FBO 中央
+     * 一小个子矩形——窗口大小的 FBO 被放大后双线性采样，就是贴脸发糊的根因。
+     * FBO = quad 完整投影尺寸时可见区域恢复 1:1，且宽 FBO 装瘦高视锥造成的
+     * 纵向分辨率浪费同时消失（FBO 纵横比跟随 quad 纵横比）。
+     *
+     * <p><b>UV 余量校正</b>：quad 实际采样的是门洞角点对应的 FBO 子矩形
+     * （UV 跨度 span，见 {@link #computeQuadUvs}）。若 PortalFrustum 的投影
+     * 不是严格把角点顶到视锥边缘（span &lt; 1），门洞只占 FBO 的 span 比例
+     * → 有效分辨率被摊薄，全距离一致发糊。用上一帧角点 UV 跨度反推真实
+     * 所需尺寸（滞后一帧，准静态无碍）；span &gt; 1 视为 frustum 异常不校正，
+     * 由日志暴露。
+     *
+     * <p>投影矩阵用基础 FOV 重建（渲染珠的 ProjectionMatrixBuffer 不直接暴露
+     * Matrix4f）；疾跑等 FOV 效果带来约 10% 偏差，只影响清晰度预算、不影响
+     * 正确性。角点落到主相机背后（w≤0）时退回窗口大小——此时玩家已贴近到
+     * MIN_PLANE_DIST 附近，渲染即将被跳过。4096 上限覆盖到约 0.3m 的 1:1，
+     * 更近由穿门淡入接管。
+     *
+     * @return {@code [fboW, fboH, needW, needH]}：量化后实际尺寸 + 量化前
+     *         原始需求尺寸（后者供 1:1 判定算缩放率，见 resize 调用处）。
+     */
+    private static long fboLogThrottle;
+
+    private static int[] quadFootprintPx(CacheEntry entry, CameraRenderState camera) {
+        var mc = Minecraft.getInstance();
+        int winW = Math.max(1, mc.getWindow().getWidth());
+        int winH = Math.max(1, mc.getWindow().getHeight());
+
+        PortalDoorHole.DoorHole hole = entry.hole;
+        if (hole == null) return new int[]{winW, winH, winW, winH};
+
+        float fovDeg = mc.options.fov().get().floatValue();
+        float aspect = (float) winW / winH;
+        Matrix4f proj = new Matrix4f()
+                .perspective((float) Math.toRadians(fovDeg), aspect, 0.05f, 1000f);
+        Vec3 eyeEff = effectiveEyePos(camera);
+        Matrix4f view = new Matrix4f(camera.viewRotationMatrix);
+        view.translate(-(float) eyeEff.x, -(float) eyeEff.y, -(float) eyeEff.z);
+        Matrix4f vp = proj.mul(view, new Matrix4f());
+
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        Vec3[] corners = {hole.tl(), hole.tr(), hole.br(), hole.bl()};
+        Vector4f p = new Vector4f();
+        for (Vec3 c : corners) {
+            p.set((float) c.x, (float) c.y, (float) c.z, 1f);
+            vp.transform(p);
+            if (p.w <= 0f) {
+                return new int[]{winW, winH, winW, winH};
+            }
+            float nx = p.x / p.w, ny = p.y / p.w;
+            minX = Math.min(minX, nx);
+            maxX = Math.max(maxX, nx);
+            minY = Math.min(minY, ny);
+            maxY = Math.max(maxY, ny);
+        }
+
+        float uSpan = 1f, vSpan = 1f;
+        if (entry.lastQuadUvs != null) {
+            float u0 = Float.MAX_VALUE, u1 = -Float.MAX_VALUE;
+            float v0 = Float.MAX_VALUE, v1 = -Float.MAX_VALUE;
+            for (int i = 0; i < 4; i++) {
+                float u = entry.lastQuadUvs[i * 2];
+                float v = entry.lastQuadUvs[i * 2 + 1];
+                u0 = Math.min(u0, u);
+                u1 = Math.max(u1, u);
+                v0 = Math.min(v0, v);
+                v1 = Math.max(v1, v);
+            }
+            if (u1 - u0 > 1e-3f) uSpan = Math.min(1f, u1 - u0);
+            if (v1 - v0 > 1e-3f) vSpan = Math.min(1f, v1 - v0);
+        }
+
+        int needW = Math.round((maxX - minX) * 0.5f * winW * PORTAL_RENDER_SCALE / uSpan);
+        int needH = Math.round((maxY - minY) * 0.5f * winH * PORTAL_RENDER_SCALE / vSpan);
+        int fboW = quantizeFboDim(needW);
+        int fboH = quantizeFboDim(needH);
+
+        long now = System.currentTimeMillis();
+        if (now - fboLogThrottle > 1000L) {
+            fboLogThrottle = now;
+            StpConfig.debug("[portal-fbo] win={}x{} need={}x{} fbo={}x{} uvSpan={}/{}",
+                    winW, winH, needW, needH, fboW, fboH, uSpan, vSpan);
+        }
+        return new int[]{fboW, fboH, needW, needH};
+    }
+
+    /**
+     * FBO 尺寸量化：向上取整到 FBO_QUANTUM 的倍数，并夹在 [MIN, MAX]。
+     * 向上取整是刻意的——宁可选超也不要欠采样（欠了就是糊）。
+     */
+    private static int quantizeFboDim(int px) {
+        int quantized = ((px + FBO_QUANTUM - 1) / FBO_QUANTUM) * FBO_QUANTUM;
+        return Math.max(FBO_MIN_DIM, Math.min(FBO_MAX_DIM, quantized));
     }
 
     private boolean dispose(CacheEntry entry) {
@@ -492,10 +623,10 @@ public final class PortalViewManager {
      * <li>dayTime = -1（服务端未同步/老协议）→ 不压暗，按白天处理；</li>
      * <li>对侧 hasSkyLight=false（如内饰）→ 不压暗（该方向的对偶画面本就该亮，
      * 内饰光照来自灯具，block light 不随昼夜衰减）；</li>
-     * <li>fixed_time 且有天光的维度 → timeOfDay 返回定值 → factor 恒定，语义自洽。</li>
+     * <li>fixed_time 且有天光的维度 → 当天进度为定值 → factor 恒定，语义自洽。</li>
      * </ul>
      *
-     * <p>与原版昼夜边界对齐：dayness = cos((timeOfDay − 0.25)·2π)，正午 +1 →
+     * <p>与原版昼夜边界对齐：dayness = cos((celestial − 0.25)·2π)，正午 +1 →
      * 午夜 −1。dayness ≥ 0（日出 tick 0 到日落 tick 12000）全亮；≤ −0.35
      * （约 tick 14250..21750，对应原版深夜）压到 {@link #NIGHT_SKY_FACTOR}；
      * 中间线性过渡（黄昏黎明渐暗）。对原版是亮度级近似，不含夜晚偏蓝色温
@@ -586,7 +717,9 @@ public final class PortalViewManager {
      * GPU 对平面 quad 做透视校正插值，4 角 UV 正确即整幅映射正确
      * （等价于一次 homography）。
      *
-     * <p>只渲染 {@code activeThisFrame} 的条目 —— 与
+     * <p>采样器逐 entry 选择：quadSamplerNearest（1:1 判定，见
+     * renderOffscreenPass）为真用 NEAREST 消除亚像素重采样软化，
+     * 否则 LINEAR。只渲染 {@code activeThisFrame} 的条目 —— 与
      * {@link #getActiveHoles()}（mask 消费方）严格同源。
      */
     public void renderPortalQuad(RenderPass pass) {
@@ -594,7 +727,6 @@ public final class PortalViewManager {
         if (mc.level == null) return;
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
 
-        var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         var projection = RenderSystem.getProjectionMatrixBuffer();
         if (projection != null) pass.setUniform("Projection", projection);
         Matrix4f camMat = new Matrix4f(camera.viewRotationMatrix);
@@ -621,6 +753,8 @@ public final class PortalViewManager {
             if (entry.quadBuffer == null) continue;
 
             var target = entry.framebuffer.getTarget();
+            var sampler = RenderSystem.getSamplerCache().getClampToEdge(
+                    entry.quadSamplerNearest ? FilterMode.NEAREST : FilterMode.LINEAR);
             pass.setUniform("Sampler0", target.getColorTextureView(), sampler);
             pass.setPipeline(RenderSystem.getCompiledPipeline(PORTAL_PLANE));
             pass.setVertexBuffer(0, entry.quadBuffer.slice());
@@ -651,10 +785,9 @@ public final class PortalViewManager {
         for (int i = 0; i < 4; i++) {
             Vec3 c = remoteCorners[i];
             p.set((float) c.x, (float) c.y, (float) c.z);
-            // transformProject 含透视除法，得到 NDC；reversed-Z 不影响 x/y
             vp.transformProject(p);
-            uvs[i][0] = Mth.clamp(p.x * 0.5f + 0.5f, 0.0f, 1.0f);
-            uvs[i][1] = Mth.clamp(p.y * 0.5f + 0.5f, 0.0f, 1.0f);
+            uvs[i][0] = p.x * 0.5f + 0.5f;
+            uvs[i][1] = p.y * 0.5f + 0.5f;
         }
         return uvs;
     }
