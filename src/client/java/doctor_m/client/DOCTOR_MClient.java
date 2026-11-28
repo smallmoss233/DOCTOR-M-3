@@ -5,11 +5,15 @@ import doctor_m.client.gui.pip.GuiBedrockModelRenderer;
 import doctor_m.client.network.DMClientNetwork;
 import doctor_m.client.stp.StpClientState;
 import doctor_m.client.tardis.appearance.TardisAppearancePlugin;
+import doctor_m.client.tardis.console.ConsoleAnimationController;
 import doctor_m.client.tardis.console.ConsoleControlClient;
 import doctor_m.client.tardis.console.TardisConsoleLoader;
+import doctor_m.client.tardis.portal.PortalViewManager;
+import doctor_m.client.tardis.render.ConsoleControlRenderer;
 import doctor_m.client.tardis.render.TardisConsoleRenderer;
 import doctor_m.client.tardis.render.TardisDoorRenderer;
 import doctor_m.register.DMBlockEntities;
+import doctor_m.register.DMEntityTypes;
 import doctor_m.stp.StpPackets;
 import mosslib.api.ClientHandlers;
 import mosslib.core.bedrock.BedrockCache;
@@ -23,14 +27,14 @@ public class DOCTOR_MClient implements ClientModInitializer {
         TardisAppearancePlugin.register();
         TardisConsoleLoader.register();
         BedrockCache.register();
-        doctor_m.client.tardis.portal.PortalViewManager.register();
+        PortalViewManager.register();
         BedrockDebugCommand.register();
         DMClientNetwork.register();
         ConsoleControlClient.register();
 
         net.minecraft.client.renderer.entity.EntityRenderers.register(
-                doctor_m.register.DMEntityTypes.CONSOLE_CONTROL,
-                doctor_m.client.tardis.render.ConsoleControlRenderer::new);
+                DMEntityTypes.CONSOLE_CONTROL,
+                ConsoleControlRenderer::new);
 
         PictureInPictureRendererRegistry.register(ctx -> new GuiBedrockModelRenderer());
 
@@ -47,7 +51,7 @@ public class DOCTOR_MClient implements ClientModInitializer {
 
         // 控件动画索引：每 tick 重建一次，避免每帧遍历全世界实体。
         net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents.END_CLIENT_TICK
-                .register(client -> doctor_m.client.tardis.console.ConsoleAnimationController.tick(client));
+                .register(client -> ConsoleAnimationController.tick(client));
 
         net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents.DISCONNECT.register(
                 (handler, client) -> StpClientState.clear());

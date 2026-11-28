@@ -37,11 +37,11 @@ import java.util.UUID;
  * <h2>三个阶段</h2>
  * <ol>
  * <li><b>prepare</b>：服务端在玩家靠近门时下发目标维度信息与区块数据。客户端据此
- *     预构建一个 {@link ClientLevel}，并把区块（含光照）灌进它的 {@code ClientChunkCache}
- *     与 {@code LevelLightEngine}。</li>
+ * 预构建一个 {@link ClientLevel}，并把区块（含光照）灌进它的 {@code ClientChunkCache}
+ * 与 {@code LevelLightEngine}。</li>
  * <li><b>换场</b>：玩家跨门时服务端发来原版维度切换包（{@code handleRespawn}），
- *     Mixin 拦截其中新建 {@code ClientLevel} 与 {@code ClientLevelData} 的两处调用，
- *     换成预构建实例，并抑制加载界面。</li>
+ * Mixin 拦截其中新建 {@code ClientLevel} 与 {@code ClientLevelData} 的两处调用，
+ * 换成预构建实例，并抑制加载界面。</li>
  * <li><b>复用</b>：预构建实例被换入后立即失效，等待下一轮 prepare。</li>
  * </ol>
  *
@@ -50,12 +50,12 @@ import java.util.UUID;
  * <li>{@code replaceWithPacketData} 写入方块；</li>
  * <li>{@code queueSectionData} 把光照层<b>入队</b>（不是落库！）；</li>
  * <li>{@code updateSectionStatus} 登记 section 非空状态——这是传播引擎
- *     处理该 section 的前提，漏掉则引擎当它是空的直接跳过（= 门内全黑）；</li>
+ * 处理该 section 的前提，漏掉则引擎当它是空的直接跳过；</li>
  * <li>{@code setLightEnabled} 打开该区块的光照；</li>
  * <li>{@code runLightUpdates()} 泵干任务队列——预构建 level 是休眠的，
- *     没有原版的每 tick 泵送，必须手动排空，光照才真正落进存储。</li>
+ * 没有原版的每 tick 泵送，必须手动排空，光照才真正落进存储。</li>
  * </ol>
- * 任何一环缺失，表现都是方块几何正常但人造光源不亮。
+ * 任何一环缺失，表现都是方块几何正常但光照异常。
  */
 public final class StpClientState {
 
@@ -75,8 +75,24 @@ public final class StpClientState {
         final ClientLevel.ClientLevelData levelData;
         long createdAtMs;
 
-        Prepared(UUID sessionId, ResourceKey<Level> dimension,
-                 ResourceKey<DimensionType> dimensionType,
+        /**
+         * 对侧维度的 dayTime 快照（prepare 时刻的累计 tick）；-1 = 服务端未同步
+         * （老协议兜底，渲染端按白天处理）。
+         *
+         * <p>为什么渲染端需要它：lightmap 是全局唯一纹理、由玩家所在维度驱动——
+         * 玩家站在 {@code fixed_time: 6000} 的内饰里，主 lightmap 恒为正午曲线，
+         * FBO 借用原版管线时对侧的天光区域（sky=15）恒亮。prepared level 自己的
+         * levelData 时间是默认值（没同步过），救不了场；所以这里存服务端给的
+         * <b>目标维度</b>时间，门户渲染端拿它自行计算昼夜压暗
+         * （见 {@code PortalViewManager.computeSkyFactor}），绕过 lightmap 的
+         * 时间源错位。
+         *
+         * <p>非 final：reusing 路径要刷新快照，否则首次 prepare 之后时间冻结。
+         * volatile：写入发生在包处理线程，读取发生在渲染线程，可见性廉价买断。
+         */
+        volatile long dayTime = -1;
+
+        Prepared(UUID sessionId, ResourceKey<Level> dimension, ResourceKey<DimensionType> dimensionType,
                  ClientLevel level, ClientLevel.ClientLevelData levelData) {
             this.sessionId = sessionId;
             this.dimension = dimension;
@@ -108,10 +124,24 @@ public final class StpClientState {
         return p == null ? null : p.level;
     }
 
+    /**
+     * 对侧维度当前 dayTime 快照（prepare 时刻的累计 tick）。
+     * -1 = 服务端未同步（老协议/未改包），渲染端按白天处理。
+     *
+     * <p>注意语义：这是 prepare 那一刻的快照，不是实时钟——新鲜度取决于服务端
+     * 重发 prepare 的频率。长时间盯着门看时间不动，是服务端侧的心跳问题，
+     * 不是这里的 bug。
+     */
+    public static long portalDayTime() {
+        Prepared p = prepared;
+        return p == null ? -1 : p.dayTime;
+    }
+
     private static volatile Prepared prepared = null;
 
     /** 抑制下一次加载界面的意图。 */
     private static volatile boolean suppressNextLoading = false;
+
     /** 服务端明确要求“立即进入”时置位，与 suppressNextLoading 配合。 */
     private static volatile boolean skipLoadingThisRespawn = false;
 
@@ -131,6 +161,9 @@ public final class StpClientState {
                 && payload.dimensionTypeId().equals(current.dimensionType.identifier());
 
         if (reusable) {
+            // 复用也要刷新时间快照：level 本体可以复用，时间不能。
+            // 漏了这行 → 首次 prepare 之后时间冻结，之后每次重发都白来。
+            current.dayTime = payload.dayTime();
             StpConfig.debug("prepare: reusing prepared level for {}", payload.dimensionId());
         } else {
             if (current != null) {
@@ -157,8 +190,8 @@ public final class StpClientState {
         if (conn == null) return false;
 
         var dimTypeReg = conn.registryAccess().lookupOrThrow(Registries.DIMENSION_TYPE);
-        ResourceKey<DimensionType> dimTypeKey =
-                ResourceKey.create(Registries.DIMENSION_TYPE, payload.dimensionTypeId());
+        ResourceKey<DimensionType> dimTypeKey = ResourceKey.create(
+                Registries.DIMENSION_TYPE, payload.dimensionTypeId());
         var holderOpt = dimTypeReg.get(dimTypeKey);
         if (holderOpt.isEmpty()) {
             StpConfig.warn("dimension type {} not found; cannot prebuild", payload.dimensionTypeId());
@@ -166,8 +199,10 @@ public final class StpClientState {
         }
 
         ResourceKey<Level> dimKey = ResourceKey.create(Registries.DIMENSION, payload.dimensionId());
+
         ClientLevel.ClientLevelData levelData = new ClientLevel.ClientLevelData(
-                mc.level != null ? mc.level.getDifficulty() : Difficulty.NORMAL, false, false);
+                mc.level != null ? mc.level.getDifficulty() : Difficulty.NORMAL,
+                false, false);
 
         int chunkRadius = ((ClientPacketListenerAccessor) conn).doctor_m$getServerChunkRadius();
         int simDist = ((ClientPacketListenerAccessor) conn).doctor_m$getServerSimulationDistance();
@@ -177,12 +212,12 @@ public final class StpClientState {
                     chunkRadius, simDist, mc.levelExtractor, false,
                     payload.biomeZoomSeed(), payload.seaLevel());
             prepared = new Prepared(payload.sessionId(), dimKey, dimTypeKey, level, levelData);
-            StpConfig.debug("prebuilt ClientLevel for {} (chunkRadius={}, simDist={})",
-                    payload.dimensionId(), chunkRadius, simDist);
+            prepared.dayTime = payload.dayTime();
+            StpConfig.debug("prebuilt ClientLevel for {} (chunkRadius={}, simDist={}, dayTime={})",
+                    payload.dimensionId(), chunkRadius, simDist, prepared.dayTime);
             return true;
         } catch (Throwable t) {
-            StpConfig.warn("prebuilding ClientLevel for {} failed: {}",
-                    payload.dimensionId(), t.toString());
+            StpConfig.warn("prebuilding ClientLevel for {} failed: {}", payload.dimensionId(), t.toString());
             return false;
         }
     }
@@ -244,6 +279,7 @@ public final class StpClientState {
                     Unpooled.wrappedBuffer(payload.packetData()), conn.registryAccess());
             ClientboundLevelChunkWithLightPacket pkt =
                     ClientboundLevelChunkWithLightPacket.STREAM_CODEC.decode(buf);
+
             // 队列满了丢最旧的：积压说明网络比主线程快得多，保留最新的更有价值。
             while (PENDING.size() >= StpConfig.CLIENT_QUEUE_LIMIT) {
                 PENDING.poll();
@@ -255,26 +291,35 @@ public final class StpClientState {
         }
     }
 
-    /** 光照泵送的防御上限：正常几轮就排空，防异常数据导致死循环。 */
-    private static final int LIGHT_PUMP_GUARD = 100;
+    /**
+     * 每 tick 的光照泵送轮数预算：一轮 {@code runLightUpdates} 处理一批挂起任务，
+     * 跑不完就留到下一 tick 接着排，绝不半途截断传播。
+     */
+    private static final int LIGHT_PUMP_ROUNDS_PER_TICK = 64;
+
+    /** 光照引擎尚有积压任务时置位；进入终态后翻回 false 并 bump 一次 revision。 */
+    private static volatile boolean lightPumpDirty;
 
     /**
      * 由客户端主线程每 tick 调用：限量写入待处理队列。
      *
      * <p>写入的是 {@link Prepared#level} 自己的缓存——换场时整个 level 被换入，
-     * 区块与光照自然就位。每批写完后泵干光照引擎（见 {@link #pumpLightEngine}）。
+     * 区块与光照自然就位。区块入账后泵送光照引擎；引擎有积压时（{@code lightPumpDirty}）
+     * 即使本 tick 没有新区块也要继续泵，直到排空为止。
      */
     public static void tick() {
-        if (PENDING.isEmpty()) return;
+        if (PENDING.isEmpty() && !lightPumpDirty) return;
 
         Prepared target = prepared;
         if (target == null) {
             PENDING.clear();
+            lightPumpDirty = false;
             return;
         }
         if (target.isExpired(System.currentTimeMillis())) {
             StpConfig.debug("dropping {} pending chunks (prepared level expired)", PENDING.size());
             PENDING.clear();
+            lightPumpDirty = false;
             return;
         }
 
@@ -285,47 +330,50 @@ public final class StpClientState {
                 target.level.getChunkSource()
                         .replaceWithPacketData(chunk.x(), chunk.z(), chunk.data());
                 applyLight(target.level, chunk.light(), chunk.x(), chunk.z());
+
                 // 原版 enableChunkLight 等价物：登记 section 非空状态 + 标记相邻一圈脏。
-                // 没有这步，光照引擎把 section 当空处理，传播被整体跳过（= 门内全黑）。
+                // 没有这步，光照引擎把 section 当空处理，传播被整体跳过。
                 enableChunkLight(target.level, chunk.x(), chunk.z());
             } catch (Throwable t) {
-                StpConfig.warn("applying chunk {}/{} failed: {}",
-                        chunk.x(), chunk.z(), t.toString());
+                StpConfig.warn("applying chunk {}/{} failed: {}", chunk.x(), chunk.z(), t.toString());
             }
             applied++;
             chunkRevision++;
         }
 
         if (applied > 0) {
-            // 光照数据必须在这批区块全部写入（含 section 登记）之后统一泵干一次：
-            // queueSectionData 只入队，落库靠 runLightUpdates（见 pumpLightEngine）。
-            pumpLightEngine(target.level);
-            StpConfig.debug("applied {} chunk(s), {} still pending",
-                    applied, PENDING.size());
+            StpConfig.debug("applied {} chunk(s), {} still pending", applied, PENDING.size());
         }
+
+        // 即便本 tick 没有新区块入账，也要继续消化上一批留下的传播任务。
+        lightPump(target.level);
     }
 
     /**
-     * 泵干预构建 level 的光照引擎任务队列。
+     * 渐进式泵送预构建 level 的光照引擎任务队列。
      *
      * <p>为什么必须手动泵：预构建 level 休眠期间没有被换进 {@code Minecraft.level}，
      * 没人 tick 它，原版依赖每 tick 光照更新来消化 {@code queueSectionData}
-     * 的挂起数据。不泵的话光照永远躺在队列里，{@code getLightColor} 查到的存储
-     * 恒为空——门内一片漆黑。
+     * 的挂起数据。不泵的话光照永远躺在队列里。
      *
-     * <p>开销可控：服务端发来的 DataLayer 是已传播完成的终态，客户端这边主要
-     * 工作是把挂起的数据层提交进存储，毫秒级，且摊在 CLIENT_APPLY_PER_TICK
-     * 的节奏里每批只跑一次。
+     * <p>为什么是渐进而不是一次排空：单帧 while 到底会在区块涌入 tick 把主线程停住，
+     * 且单次循环截断会让跨界面的传播修正永远停在半途。这里按
+     * {@link #LIGHT_PUMP_ROUNDS_PER_TICK} 的预算每 tick 跑一部分，跨 tick 排空；
+     * 排空（终态）那一刻 bump 一次 {@code chunkRevision}，让门户网格按终态光照
+     * 重烘最后一次——之前几次是半成品光照，这次才是最终形态。
      */
-    private static void pumpLightEngine(ClientLevel level) {
+    private static void lightPump(ClientLevel level) {
         LevelLightEngine engine = level.getChunkSource().getLightEngine();
-        int guard = 0;
-        while (engine.runLightUpdates() > 0) {
-            if (++guard >= LIGHT_PUMP_GUARD) {
-                StpConfig.warn("light engine did not settle after {} pump rounds", guard);
-                break;
+        for (int i = 0; i < LIGHT_PUMP_ROUNDS_PER_TICK; i++) {
+            if (engine.runLightUpdates() <= 0) {
+                if (lightPumpDirty) {
+                    lightPumpDirty = false;
+                    chunkRevision++;
+                }
+                return;
             }
         }
+        lightPumpDirty = true;
     }
 
     /**
@@ -335,7 +383,7 @@ public final class StpClientState {
      * 该 section 的前提条件。原版在 {@code handleLevelChunkWithLight} 里于
      * {@code applyLightData} 之后、区块数据写入之后调用它，这里保持相同顺序。
      *
-     * <p><b>必须在 {@link #pumpLightEngine} 之前调用</b>：登记本身只改引擎的
+     * <p><b>必须在 {@link #lightPump} 的消化范围内调用</b>：登记本身只改引擎的
      * 状态位，但登记结果与队列里的光照数据在 {@code runLightUpdates} 时一起
      * 生效——先登记后泵，顺序才与原版 {@code queueLightUpdate} 回调一致。
      */
@@ -352,9 +400,8 @@ public final class StpClientState {
                     SectionPos.of(chunkPos, sectionY),
                     sections[sectionIndex].hasOnlyAir());
         }
+
         // 原版照搬：相邻一圈一起标脏，让跨界面的光照/网格在边缘处正确重算。
-        // 这同时覆盖了渲染端对“该区块刚写入”的可见性通知，替代旧的逐 section
-        // setSectionDirty 循环（原版也只用这一个调用）。
         level.setSectionRangeDirty(x - 1, level.getMinSectionY(), z - 1,
                 x + 1, level.getMaxSectionY(), z + 1);
     }
@@ -364,46 +411,51 @@ public final class StpClientState {
      *
      * <p>照原版 {@code ClientPacketListener#handleLevelChunkWithLight → applyLightData}
      * 的做法：逐层写入天空光与方块光，空层标记为空，最后打开这个区块的光照传播。
-     * 注意此时数据只是<b>入队</b>——真正的落库由 {@link #pumpLightEngine} 完成。
+     * 注意此时数据只是<b>入队</b>——真正的落库由 {@link #lightPump} 跨 tick 完成。
      */
-    private static void applyLight(ClientLevel level, ClientboundLightUpdatePacketData light,
-                                   int x, int z) {
+    private static void applyLight(ClientLevel level, ClientboundLightUpdatePacketData light, int x, int z) {
         if (light == null) return;
         LevelLightEngine lightEngine = level.getChunkSource().getLightEngine();
         ChunkPos chunkPos = new ChunkPos(x, z);
+
         applyLightLayer(lightEngine, LightLayer.SKY, chunkPos,
                 light.skyYMask(), light.emptySkyYMask(), light.skyUpdates());
         applyLightLayer(lightEngine, LightLayer.BLOCK, chunkPos,
                 light.blockYMask(), light.emptyBlockYMask(), light.blockUpdates());
+
         lightEngine.setLightEnabled(chunkPos, true);
     }
 
     /**
      * 写入单层光照（对应原版 {@code ClientPacketListener.readSectionList}）。
      *
-     * <p><b>Y 公式（已按 26.3 反编译核对）</b>：光照包 bitset 的位索引以
-     * {@code minLightSection} 为基准，原版 {@code readSectionList} 的
-     * {@code sectionY = getMinLightSection() + sectionIndex}，与本实现一致，
-     * 不需要再核对。维度 minY ≥ 0 时 minLightSection 的补偿自然归零，无副作用。
+     * <p><b>坐标语义（本案修正之一）</b>：必须用
+     * {@code SectionPos.of(ChunkPos, sectionY)} 这个重载——它按区块坐标直接打包，
+     * 与原版 {@code readSectionList} 一致。不能用
+     * {@code SectionPos.of(int x, int y, int z)} 传区块坐标：那个重载收的是
+     * <b>世界方块坐标</b>（内部对 x/z 各做 {@code >>4}），传区块坐标会把所有区块的
+     * 光照数据错位堆进 (0..15, y, 0..15) 附近的 section。
+     *
+     * <p><b>Y 公式</b>：光照包 bitset 的位索引以 {@code minLightSection} 为基准，
+     * {@code sectionY = getMinLightSection() + sectionIndex}，与原版一致。
      *
      * <p>与原版的两处细节对齐：数据层先 {@code clone()} 再入队（防 buffer
-     * 复用被改）；空层用 {@code new DataLayer()}（空的非 null 层），不是 null。
+     * 复用被改）；空层用 {@code new DataLayer()}（空的非 null 层）。
      */
     private static void applyLightLayer(LevelLightEngine engine, LightLayer layer, ChunkPos pos,
                                         BitSet filledMask, BitSet emptyMask, List<byte[]> updates) {
         if (filledMask == null || emptyMask == null || updates == null) return;
+
         int minLightSection = engine.getMinLightSection();
         int index = 0;
         for (int y = filledMask.nextSetBit(0); y >= 0; y = filledMask.nextSetBit(y + 1)) {
             if (index >= updates.size()) break;
             byte[] data = updates.get(index++);
-            engine.queueSectionData(layer,
-                    SectionPos.of(pos.x(), y + minLightSection, pos.z()),
+            engine.queueSectionData(layer, SectionPos.of(pos, y + minLightSection),
                     new DataLayer(data.clone()));
         }
         for (int y = emptyMask.nextSetBit(0); y >= 0; y = emptyMask.nextSetBit(y + 1)) {
-            engine.queueSectionData(layer,
-                    SectionPos.of(pos.x(), y + minLightSection, pos.z()),
+            engine.queueSectionData(layer, SectionPos.of(pos, y + minLightSection),
                     new DataLayer());
         }
     }
@@ -425,21 +477,19 @@ public final class StpClientState {
         Prepared p = prepared;
         if (p == null) return null;
         if (p.isExpired(System.currentTimeMillis())) {
-            StpConfig.debug("prepared level for {} expired, discarded",
-                    p.dimension.identifier());
+            StpConfig.debug("prepared level for {} expired, discarded", p.dimension.identifier());
             prepared = null;
             return null;
         }
         if (requestedDimension != null && !requestedDimension.equals(p.dimension)) {
-            StpConfig.warn("prepared level is for {} but respawn wants {}; "
-                            + "discarding prepared data and letting vanilla build",
+            StpConfig.warn("prepared level is for {} but respawn wants {}; " +
+                            "discarding prepared data and letting vanilla build",
                     p.dimension.identifier(), requestedDimension.identifier());
             prepared = null;
             return null;
         }
         prepared = null;
-        StpConfig.debug("handing over prepared ClientLevel for {}",
-                p.dimension.identifier());
+        StpConfig.debug("handing over prepared ClientLevel for {}", p.dimension.identifier());
         return p.level;
     }
 
@@ -449,9 +499,6 @@ public final class StpClientState {
 
     /**
      * 门户渲染每帧调用：预构建 level 正在被门户视图使用，刷新过期时间戳。
-     *
-     * <p>玩家站在门外看门里时不会发生维度切换，预构建实例若不续期就会在
-     * {@link StpConfig#PREPARE_TIMEOUT_MS} 后被过期逻辑作废，门户视图随之黑掉。
      */
     public static void portalKeepAlive() {
         Prepared p = prepared;
@@ -481,5 +528,6 @@ public final class StpClientState {
         suppressNextLoading = false;
         skipLoadingThisRespawn = false;
         PENDING.clear();
+        lightPumpDirty = false;
     }
 }

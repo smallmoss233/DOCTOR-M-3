@@ -37,6 +37,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.attribute.EnvironmentAttributes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.phys.Vec3;
 import org.joml.Matrix4f;
 import org.joml.Vector3f;
@@ -64,11 +65,13 @@ public final class PortalViewManager {
         Direction facing;
         PortalMesh mesh;
         PortalFramebuffer framebuffer;
+
         /**
          * 当前门的门洞（当前维度，主 pass quad 用）。
          * 玩家看这扇门，FBO 就贴在这个门洞的世界坐标矩形上。
          */
         PortalDoorHole.DoorHole hole;
+
         /**
          * 对面门的门洞（预构建维度，FBO 视锥用）。
          *
@@ -76,31 +79,42 @@ public final class PortalViewManager {
          * 对面门洞上；用当前门的门洞会让视锥对准当前维度坐标，画面完全错位。
          */
         PortalDoorHole.DoorHole remoteHole;
+
         /** 对面门朝向（与 remoteHole 同时提取，PortalCamera 构造用）。 */
         Direction remoteFacing;
+
         int chunkRevision;
+
+        /** 上次烘焙网格时的 skyFactor；变化超过阈值触发重烘（时间流动也要重烘）。 */
+        float lastSkyFactor = 1f;
+
         long lastMeshRebuildMs;
         GpuBuffer meshBuffer;
         int meshQuadCount;
         GpuBuffer quadBuffer;
         PortalDoorHole.DoorHole quadHole;
         float lastQuadAlpha = -1f;
+
         /** 上一帧贴回 quad 用的 UV（压平为 [u0,v0,u1,v1,...]），用于判断是否需要重建 quad buffer。 */
         float[] lastQuadUvs;
+
         /**
          * 本帧 FBO 实际渲染时使用的视锥投影矩阵（offscreen 阶段写入），
          * 主 pass 贴回 quad 时用它对对面门洞角点做投影，算出正确的采样 UV。
          */
         Matrix4f frustumProj;
+
         /** 本帧 FBO 实际渲染时使用的虚拟相机视图矩阵。 */
         Matrix4f portalView;
+
         /** 本帧淡入透明度快照（offscreen 阶段从 BE 抓取，quad 与 mask 共用）。 */
         float fadeAlpha = 1.0f;
+
         /**
          * 本帧是否实际渲染。这是 mask 与 quad 的唯一事实来源：
          * PortalMaskRenderer 用 {@link #getActiveHoles()}，主 pass quad 用
          * {@link #renderPortalQuad}，两边绝不允许各自再做剔除，
-         * 否则"mask 了却没画 quad"= 纯色黑洞门。
+         * 否则"mask 了却没画 quad" = 纯色黑洞门。
          */
         boolean activeThisFrame;
     }
@@ -110,6 +124,23 @@ public final class PortalViewManager {
     private static final int MAX_ACTIVE_PER_FRAME = 4;
     private static final long MESH_REBUILD_INTERVAL_MS = 200L;
     private static final int MAX_CACHED_PORTALS = 8;
+
+    // ===== 天光压暗（毒二：fixed_time 6000 的 lightmap 时间源错位） =====
+
+    /**
+     * 本帧对侧维度的天光压暗因子：1=白天，&lt;1=夜晚。
+     *
+     * <p>根因：lightmap 是全局唯一纹理、由玩家所在维度（fixed_time 6000 的内饰）
+     * 驱动 → 恒为正午曲线，FBO 借用原版 CUTOUT_BLOCK 管线时对侧 sky=15 区域恒亮。
+     * 曲线的列内梯度（sky 0..15）是健康的，故把夜晚压暗烘成更小的 sky nibble
+     * （{@link #applySkyDimming}），等于在恒亮曲线上取更暗的采样点；清屏色同步乘
+     * factor，避免夜晚门外方块暗了、天际线却还是白天色。
+     * 每帧在 {@link #renderOffscreenPass()} 开头更新一次。
+     */
+    private static float skyFactor = 1f;
+
+    /** 深夜压暗下限：15×0.25 → sky nibble 4，约等于月夜的观感亮度级。 */
+    private static final float NIGHT_SKY_FACTOR = 0.25f;
 
     private final LinkedHashMap<DoorKey, CacheEntry> cache = new LinkedHashMap<>(16, 0.75f, true) {
         @Override
@@ -123,6 +154,7 @@ public final class PortalViewManager {
     };
 
     private final Set<TardisDoorBlockEntity> activeDoors = ConcurrentHashMap.newKeySet();
+
     private volatile boolean invalidateRequested;
     private long holeRevision;
 
@@ -174,6 +206,7 @@ public final class PortalViewManager {
     public void renderOffscreenPass() {
         var mc = Minecraft.getInstance();
         if (mc.level == null) return;
+
         if (portalProjectionBuffer == null) {
             portalProjectionBuffer = new ProjectionMatrixBuffer("Tardis Portal Projection");
         }
@@ -181,19 +214,28 @@ public final class PortalViewManager {
             invalidateRequested = false;
             disposeAll();
         }
+
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
+
         ClientLevel prepared = StpClientState.portalLevel();
         if (prepared == null) {
+            skyFactor = 1f;
             activeDoors.clear();
             disposeAll();
             return;
         }
+
+        // 本帧的对侧天光压暗因子：prepare 快照时间 → 昼夜压暗（毒二修复入口）。
+        skyFactor = computeSkyFactor(prepared);
+
         if (!activeDoors.isEmpty()) {
             StpClientState.portalKeepAlive();
         }
+
         for (CacheEntry e : cache.values()) {
             e.activeThisFrame = false;
         }
+
         cache.entrySet().removeIf(entry -> {
             DoorKey key = entry.getKey();
             if (!mc.level.dimension().equals(key.dimension())) {
@@ -204,30 +246,40 @@ public final class PortalViewManager {
                     || door.isRemoved() || !door.isOpen();
             return gone && dispose(entry.getValue());
         });
+
         List<CacheEntry> candidates = new ArrayList<>(activeDoors.size());
         for (TardisDoorBlockEntity door : activeDoors) {
             if (door.isRemoved() || !door.isOpen()) continue;
             BlockPos counterpart = door.getCounterpartPos();
             if (counterpart == null) continue;
             if (!(door.getBlockState().getBlock() instanceof AbstractTardisDoorBlock)) continue;
+
             Direction facing = door.getBlockState().getValue(AbstractTardisDoorBlock.FACING);
             Identifier appearanceId = door.getAppearance();
             Level doorLevel = door.getLevel();
             if (doorLevel == null) continue;
+
             DoorKey key = new DoorKey(doorLevel.dimension(), door.getBlockPos());
             CacheEntry entry = cache.get(key);
             if (entry == null) {
                 entry = new CacheEntry();
                 cache.put(key, entry);
             }
+
             long nowMs = System.currentTimeMillis();
             int revision = StpClientState.chunkRevision();
+
             boolean inputChanged = entry.sourceLevel != prepared
                     || !counterpart.equals(entry.anchor)
                     || entry.facing != facing
                     || !Objects.equals(entry.appearanceId, appearanceId);
-            boolean contentChanged = revision != entry.chunkRevision
-                    && nowMs - entry.lastMeshRebuildMs >= MESH_REBUILD_INTERVAL_MS;
+
+            // skyFactor 变化也触发重烘：压暗烘在顶点里，时间流动必须重烘才生效。
+            // 不受 200ms 节流——dayTime 只在 prepare 重发时更新，触发频率天然很低。
+            boolean contentChanged = (revision != entry.chunkRevision
+                    && nowMs - entry.lastMeshRebuildMs >= MESH_REBUILD_INTERVAL_MS)
+                    || Math.abs(skyFactor - entry.lastSkyFactor) > 0.005f;
+
             if (entry.mesh == null || inputChanged || contentChanged) {
                 entry.sourceLevel = prepared;
                 entry.anchor = counterpart;
@@ -235,12 +287,14 @@ public final class PortalViewManager {
                 entry.appearanceId = appearanceId;
                 entry.chunkRevision = revision;
                 entry.lastMeshRebuildMs = nowMs;
+                entry.lastSkyFactor = skyFactor;
                 if (entry.meshBuffer != null) {
                     entry.meshBuffer.close();
                     entry.meshBuffer = null;
                 }
                 entry.meshQuadCount = 0;
                 entry.mesh = PortalMesher.build(prepared, counterpart);
+
                 // 当前门的门洞（主 pass quad 用）
                 TardisAppearance app = TardisAppearanceRegistry.get(appearanceId);
                 TardisAsset.Bedrock asset = null;
@@ -249,6 +303,7 @@ public final class PortalViewManager {
                     if (a instanceof TardisAsset.Bedrock b) asset = b;
                 }
                 entry.hole = PortalDoorHole.extract(door.getBlockPos(), facing, asset);
+
                 // 对面门的门洞（FBO 视锥用）：对面 asset + 对面 pos/facing
                 TardisAsset.Bedrock remoteAsset = null;
                 if (app != null) {
@@ -260,11 +315,14 @@ public final class PortalViewManager {
                         counterpart, entry.remoteFacing, remoteAsset);
                 holeRevision++;
             }
+
             if (entry.hole == null || entry.remoteHole == null || entry.mesh.isEmpty()) continue;
             entry.fadeAlpha = Mth.clamp(door.getFadeAlpha(), 0.0f, 1.0f);
             candidates.add(entry);
         }
+
         activeDoors.clear();
+
         if (candidates.size() > MAX_ACTIVE_PER_FRAME) {
             Vec3 camPos = camera.pos;
             candidates.sort(Comparator.comparingDouble(e -> {
@@ -273,6 +331,7 @@ public final class PortalViewManager {
             }));
             candidates = candidates.subList(0, MAX_ACTIVE_PER_FRAME);
         }
+
         for (CacheEntry entry : candidates) {
             if (entry.framebuffer == null) {
                 entry.framebuffer = new PortalFramebuffer();
@@ -280,6 +339,7 @@ public final class PortalViewManager {
             entry.framebuffer.resize(
                     Math.max(1, (int) (mc.getWindow().getWidth() * PORTAL_RENDER_SCALE)),
                     Math.max(1, (int) (mc.getWindow().getHeight() * PORTAL_RENDER_SCALE)));
+
             // 只有 FBO 真正画了才标记 active —— mask / quad / FBO 三者严格同源。
             // 贴脸时 frustum invalid 会 return false，mask 不打洞，
             // 避免"洞打了但 quad 内容是残影/清屏色"。
@@ -331,6 +391,7 @@ public final class PortalViewManager {
 
     private boolean doRenderToTarget(CacheEntry entry, CameraRenderState camera, ClientLevel prepared) {
         var target = entry.framebuffer.getTarget();
+
         PortalCamera portalCam = new PortalCamera(
                 entry.hole, entry.facing, entry.remoteHole, entry.remoteFacing,
                 effectiveEyePos(camera));
@@ -342,6 +403,7 @@ public final class PortalViewManager {
         entry.frustumProj = new Matrix4f(frustum.projectionMatrix);
         entry.portalView = new Matrix4f(portalCam.viewMatrix);
         GpuBufferSlice projectionSlice = portalProjectionBuffer.getBuffer(frustum.projectionMatrix);
+
         try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
                 RenderPassDescriptor.builder(() -> "Tardis Portal Offscreen")
                         .withColorAttachment(target.getColorTextureView(),
@@ -354,11 +416,15 @@ public final class PortalViewManager {
             var transform = RenderSystem.getDynamicUniforms().writeTransform(
                     portalCam.viewMatrix, new Vector4f(1, 1, 1, 1), new Vector3f(), new Matrix4f());
             pass.setUniform("DynamicTransforms", transform);
+
             var terrainSampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.NEAREST);
             pass.setUniform("Sampler0", Minecraft.getInstance().getTextureManager()
                     .getTexture(TextureAtlas.LOCATION_BLOCKS).getTextureView(), terrainSampler);
+
             var lightSampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
-            pass.setUniform("Sampler2", Minecraft.getInstance().gameRenderer.lightmap(), lightSampler);
+            pass.setUniform("Sampler2", Minecraft.getInstance().gameRenderer.levelLightmap(),
+                    lightSampler);
+
             var pipeline = RenderSystem.getCompiledPipeline(RenderPipelines.CUTOUT_BLOCK);
             pass.setPipeline(pipeline);
             submitMeshToPass(entry, pass);
@@ -378,25 +444,26 @@ public final class PortalViewManager {
         if (opts.bobView && camera.entityRenderState.isPlayer) {
             float walkDist = camera.entityRenderState.backwardsInterpolatedWalkDistance;
             float bob = camera.entityRenderState.bob;
-
             tX = Mth.sin(walkDist * (float) Math.PI) * bob * 0.5F;
             tY = -Math.abs(Mth.cos(walkDist * (float) Math.PI)) * bob;
         }
         if (tX == 0.0F && tY == 0.0F) {
             return camera.pos;
         }
-
         Vector3f worldBob = camera.viewRotationMatrix
                 .transpose(new Matrix4f())
                 .transformPosition(new Vector3f(tX, tY, 0.0F));
-        return new Vec3(camera.pos.x - worldBob.x,
-                camera.pos.y - worldBob.y,
-                camera.pos.z - worldBob.z);
+        return new Vec3(camera.pos.x - worldBob.x, camera.pos.y - worldBob.y, camera.pos.z - worldBob.z);
     }
 
     /**
      * FBO 清屏色 = 对侧维度雾色（26.3：环境属性系统）。
      * 烘焙网格 16 格边界渐隐进雾色后硬切边不可见。
+     *
+     * <p>夜晚乘 {@link #skyFactor}：方块烘暗了，天/雾也得跟着暗，否则夜晚门外
+     * 地面暗、天际线仍白天色，穿帮。fallback 暗色不乘（本来就暗）。
+     * <b>⚠ 实机校准点</b>：若夜晚雾色明显过暗（双重压暗感），说明 FOG_COLOR
+     * 属性本身已随时间变化——那就去掉这里的乘法，只留 {@link #applySkyDimming}。
      */
     private static Vector4f oppositeClearColor(ClientLevel level, BlockPos pos) {
         Vector3fc fog = level.environmentAttributes()
@@ -405,10 +472,46 @@ public final class PortalViewManager {
             return new Vector4f(0.04f, 0.04f, 0.06f, 1.0f);
         }
         return new Vector4f(
-                Mth.clamp(fog.x(), 0.0f, 1.0f),
-                Mth.clamp(fog.y(), 0.0f, 1.0f),
-                Mth.clamp(fog.z(), 0.0f, 1.0f),
+                Mth.clamp(fog.x() * skyFactor, 0.0f, 1.0f),
+                Mth.clamp(fog.y() * skyFactor, 0.0f, 1.0f),
+                Mth.clamp(fog.z() * skyFactor, 0.0f, 1.0f),
                 1.0f);
+    }
+
+    /**
+     * 由对侧维度时间算天光压暗因子。
+     *
+     * <p>背景（本案根因）：lightmap 全局唯一、由玩家所在维度驱动；玩家站在
+     * {@code fixed_time: 6000} 的内饰里时主 lightmap 恒为正午，FBO 借用原版
+     * 管线时对侧维度（有天光层）的 sky=15 区域恒亮。修复方式：把压暗烘进
+     * 顶点 sky nibble——曲线列内梯度（sky 0..15）健康，更小的 nibble 在恒亮
+     * 曲线上取更暗的点，等价于整体压暗；block nibble 不动，火把照常亮。
+     *
+     * <p>边界：
+     * <ul>
+     * <li>dayTime = -1（服务端未同步/老协议）→ 不压暗，按白天处理；</li>
+     * <li>对侧 hasSkyLight=false（如内饰）→ 不压暗（该方向的对偶画面本就该亮，
+     * 内饰光照来自灯具，block light 不随昼夜衰减）；</li>
+     * <li>fixed_time 且有天光的维度 → timeOfDay 返回定值 → factor 恒定，语义自洽。</li>
+     * </ul>
+     *
+     * <p>与原版昼夜边界对齐：dayness = cos((timeOfDay − 0.25)·2π)，正午 +1 →
+     * 午夜 −1。dayness ≥ 0（日出 tick 0 到日落 tick 12000）全亮；≤ −0.35
+     * （约 tick 14250..21750，对应原版深夜）压到 {@link #NIGHT_SKY_FACTOR}；
+     * 中间线性过渡（黄昏黎明渐暗）。对原版是亮度级近似，不含夜晚偏蓝色温
+     * 与雨天压暗。
+     */
+    private static float computeSkyFactor(ClientLevel prepared) {
+        long dayTime = StpClientState.portalDayTime();
+        DimensionType dimType = prepared.dimensionType();
+        if (dayTime < 0 || !dimType.hasSkyLight()) return 1f;
+
+        float celestial = Mth.frac((float) dayTime / 24000f);
+        float dayness = Mth.cos((celestial - 0.25f) * (float) (Math.PI * 2));
+
+        if (dayness >= 0f) return 1f;
+        if (dayness <= -0.35f) return NIGHT_SKY_FACTOR;
+        return Mth.lerp((dayness + 0.35f) / 0.35f, NIGHT_SKY_FACTOR, 1.0f);
     }
 
     private void submitMeshToPass(CacheEntry entry, RenderPass pass) {
@@ -459,8 +562,18 @@ public final class PortalViewManager {
                 .setColor(v.color())
                 .setUv(v.u(), v.v())
                 .setOverlay(net.minecraft.client.renderer.texture.OverlayTexture.NO_OVERLAY)
-                .setLight(v.light())
+                .setLight(applySkyDimming(v.light()))
                 .setNormal(v.nx(), v.ny(), v.nz());
+    }
+
+    /**
+     * 夜晚压暗烘进 sky nibble（packed light 位 20..23）；block nibble（位 4..7）
+     * 不动——火把/灯具照常亮。白天（factor≈1）零开销直通。
+     */
+    private static int applySkyDimming(int light) {
+        if (skyFactor >= 0.999f) return light;
+        int sky = (light >>> 20) & 15;
+        return (light & ~0xF00000) | (Math.round(sky * skyFactor) << 20);
     }
 
     /**
@@ -480,6 +593,7 @@ public final class PortalViewManager {
         var mc = Minecraft.getInstance();
         if (mc.level == null) return;
         var camera = mc.gameRenderer.gameRenderState().levelRenderState.cameraRenderState;
+
         var sampler = RenderSystem.getSamplerCache().getClampToEdge(FilterMode.LINEAR);
         var projection = RenderSystem.getProjectionMatrixBuffer();
         if (projection != null) pass.setUniform("Projection", projection);
@@ -488,13 +602,14 @@ public final class PortalViewManager {
         var transform = RenderSystem.getDynamicUniforms().writeTransform(
                 camMat, new Vector4f(1, 1, 1, 1), new Vector3f(), new Matrix4f());
         pass.setUniform("DynamicTransforms", transform);
+
         for (CacheEntry entry : cache.values()) {
             if (!entry.activeThisFrame) continue;
             if (entry.framebuffer == null || entry.hole == null) continue;
             if (entry.frustumProj == null || entry.portalView == null) continue;
+
             float[][] uvs = computeQuadUvs(entry);
-            if (entry.quadBuffer == null
-                    || entry.quadHole != entry.hole
+            if (entry.quadBuffer == null || entry.quadHole != entry.hole
                     || quadAlphaOf(entry) != entry.lastQuadAlpha
                     || uvsChanged(uvs, entry.lastQuadUvs)) {
                 closeQuietly(entry.quadBuffer);
@@ -504,6 +619,7 @@ public final class PortalViewManager {
                 entry.lastQuadUvs = flattenUvs(uvs);
             }
             if (entry.quadBuffer == null) continue;
+
             var target = entry.framebuffer.getTarget();
             pass.setUniform("Sampler0", target.getColorTextureView(), sampler);
             pass.setPipeline(RenderSystem.getCompiledPipeline(PORTAL_PLANE));
@@ -525,10 +641,10 @@ public final class PortalViewManager {
     private static float[][] computeQuadUvs(CacheEntry entry) {
         Matrix4f vp = new Matrix4f(entry.frustumProj).mul(entry.portalView);
         Vec3[] remoteCorners = {
-                entry.remoteHole.tr(),  // ↔ 本地 tl
-                entry.remoteHole.tl(),  // ↔ 本地 tr
-                entry.remoteHole.bl(),  // ↔ 本地 br
-                entry.remoteHole.br()   // ↔ 本地 bl
+                entry.remoteHole.tr(), // ↔ 本地 tl
+                entry.remoteHole.tl(), // ↔ 本地 tr
+                entry.remoteHole.bl(), // ↔ 本地 br
+                entry.remoteHole.br()  // ↔ 本地 bl
         };
         float[][] uvs = new float[4][2];
         Vector3f p = new Vector3f();

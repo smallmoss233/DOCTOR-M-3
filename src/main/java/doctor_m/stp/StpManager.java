@@ -27,9 +27,9 @@ import java.util.UUID;
  *
  * <h2>分工</h2>
  * <ul>
- *   <li>本类负责"准备什么内容"：解析维度类型、序列化区块。</li>
- *   <li>{@link StpChunkPump} 负责"什么时候发"：把成百上千个区块摊到多个 tick。</li>
- *   <li>{@link StpTrigger} 负责"什么时候开始"：按玩家与门的距离触发。</li>
+ * <li>本类负责"准备什么内容"：解析维度类型、序列化区块。</li>
+ * <li>{@link StpChunkPump} 负责"什么时候发"：把成百上千个区块摊到多个 tick。</li>
+ * <li>{@link StpTrigger} 负责"什么时候开始"：按玩家与门的距离触发。</li>
  * </ul>
  *
  * <h2>为什么区块要经 pump 而不是直接发</h2>
@@ -55,7 +55,6 @@ public final class StpManager {
         // 进 TARDIS：内部维度很小，把整间房连周边一起排队。
         // 同样经 pump 而不是立即发送，避免一个 tick 里几十个包的突发。
         sendPrepare(server, player, tardisId, key, false, StpConfig.TARDIS_PRELOAD_RADIUS);
-
         if (level != null && data.interiorPos() != null) {
             BlockPos interior = data.interiorPos();
             StpChunkPump.enqueueRadius(player, level,
@@ -87,23 +86,18 @@ public final class StpManager {
      * 足够把这几百个区块平稳铺完（见 {@link StpChunkPump}）。
      */
     public static void requestPreloadWorld(MinecraftServer server, ServerPlayer player,
-                                           ResourceKey<Level> worldDim,
-                                           int centerX, int centerZ) {
+                                           ResourceKey<Level> worldDim, int centerX, int centerZ) {
         UUID sessionId = player.getUUID();
 
         // 1. prepare 包（不触发传送，只让客户端构建空 ClientLevel）
-        sendPrepare(server, player, sessionId, worldDim, false,
-                StpConfig.WORLD_PRELOAD_RADIUS);
+        sendPrepare(server, player, sessionId, worldDim, false, StpConfig.WORLD_PRELOAD_RADIUS);
 
         // 2. 把 (2r+1)² 个区块排进滴灌队列
         ServerLevel level = server.getLevel(worldDim);
         if (level == null) return;
-
-        StpChunkPump.enqueueRadius(player, level, centerX, centerZ,
-                StpConfig.WORLD_PRELOAD_RADIUS);
+        StpChunkPump.enqueueRadius(player, level, centerX, centerZ, StpConfig.WORLD_PRELOAD_RADIUS);
         StpConfig.debug("enqueued world chunks around {}/{} for {} (pending={})",
-                centerX, centerZ, player.getGameProfile().name(),
-                StpChunkPump.pending(sessionId));
+                centerX, centerZ, player.getGameProfile().name(), StpChunkPump.pending(sessionId));
     }
 
     /** 玩家撞内门：确认进入主世界。 */
@@ -115,6 +109,16 @@ public final class StpManager {
 
     // ============ 通用发送 ============
 
+    /**
+     * 四个入口（进/出塔 × 预载/确认）共用的 prepare 发送点。
+     *
+     * <p><b>dayTime 采集（本案最后一环）</b>：{@code target} 就是本次 prepare 的
+     * 目标维度——进塔时是 exterior 世界、出塔时是内饰——所以这里取
+     * {@code target.getDayTime()} 天然方向正确，调用方无需关心。客户端用它算
+     * 门户的昼夜压暗（lightmap 由玩家所在维度驱动，玩家站在 fixed_time 内饰里时
+     * 主 lightmap 恒正午，对侧天光必须靠这个快照另行压暗）。内饰自身
+     * {@code hasSkyLight=false}，客户端会直接短路不消费此值，填原始值无害。
+     */
     private static void sendPrepare(MinecraftServer server, ServerPlayer player,
                                     UUID sessionId, ResourceKey<Level> targetDim,
                                     boolean enterNow, int preloadRadiusChunks) {
@@ -130,6 +134,7 @@ public final class StpManager {
 
         long biomeZoomSeed = BiomeManager.obfuscateSeed(target.getSeed());
         int seaLevel = target.getSeaLevel();
+        long dayTime = target.getOverworldClockTime();
 
         ServerPlayNetworking.send(player, new StpPackets.StpPrepareS2C(
                 sessionId,
@@ -138,7 +143,8 @@ public final class StpManager {
                 biomeZoomSeed,
                 seaLevel,
                 enterNow,
-                preloadRadiusChunks
+                preloadRadiusChunks,
+                dayTime
         ));
     }
 
@@ -166,14 +172,9 @@ public final class StpManager {
     public static byte[] encodeChunk(MinecraftServer server, ServerLevel level, ChunkPos pos) {
         try {
             LevelChunk chunk = level.getChunk(pos.x(), pos.z());
-
             ClientboundLevelChunkWithLightPacket pkt = new ClientboundLevelChunkWithLightPacket(
-                    chunk,
-                    level.getLightEngine(),
-                    null,
-                    null
+                    chunk, level.getLightEngine(), null, null
             );
-
             RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(
                     Unpooled.buffer(), server.registryAccess());
             try {
