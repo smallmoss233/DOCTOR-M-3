@@ -1,14 +1,10 @@
 # DOCTOR M-3
 
-> 新一代的《Doctor Who》主题模组——全新的 DOCTOR M，登陆 Minecraft 26.3。
-
 ---
 
 ## 关于
 
-**DOCTOR M-3**（简称 **DM3**），将把《神秘博士》的塔迪斯，未来还有《神秘博士》的星球/生物，新机制等等内容给带进现代的 Minecraft。
-
-前作 **DM2** 是 AIT 模组的附属扩展。DM3 是一次彻底重启——从附属模组转为独立模组，并基于 DM2 的资产做重新设计与扩展。
+**DOCTOR M**是为新版本 Minecraft 开发的《神秘博士》模组，将《神秘博士》中的内容带入 Minecraft 。
 
 > DM3 与前作一样有 AI 深度介入开发，主要是 DeepSeek 与 GLM 两个大模型。
 
